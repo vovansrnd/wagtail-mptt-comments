@@ -1,0 +1,176 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static mptt_tags i18n %}
+
+{% block extra_css %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'wagtail_mptt_comments/css/admin_comments.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="comments-app"
+     data-msg-select="{% trans 'Please select comments first.' %}"
+     data-msg-error="{% trans 'An error occurred.' %}"
+     data-msg-net-error="{% trans 'Network error while performing the action.' %}"
+     data-msg-confirm-del="{% trans 'Are you sure you want to delete this comment?' %}"
+     data-msg-confirm-bulk="{% trans 'Are you sure you want to delete selected comments?' %}">
+
+    <header class="w-header">
+        <h1 class="w-header__title">{% trans "Comments" %}</h1>
+        <div class="w-header__meta">
+            <span class="status-tag status-tag--primary">{% trans "Total:" %} {{ total_comments }}</span>
+            {% if unapproved_count %}
+                <span class="status-tag status-tag--warning">{% trans "Pending moderation:" %} {{ unapproved_count }}</span>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="nice-padding">
+        <div class="comments-toolbar">
+            <div class="comments-toolbar__group">
+                <span class="comments-toolbar__label">{% trans "View" %}</span>
+                <a href="?view=list&sort={{ sort_by }}&status={{ status_filter }}"
+                   class="comments-tab {% if view_type != 'tree' %}is-active{% endif %}">{% trans "List" %}</a>
+                <a href="?view=tree&sort={{ sort_by }}&status={{ status_filter }}"
+                   class="comments-tab {% if view_type == 'tree' %}is-active{% endif %}">{% trans "Tree" %}</a>
+            </div>
+
+            <div class="comments-toolbar__group">
+                <span class="comments-toolbar__label">{% trans "Sort by" %}</span>
+                <a href="?view={{ view_type }}&sort=-date_created&status={{ status_filter }}"
+                   class="comments-tab {% if sort_by == '-date_created' %}is-active{% endif %}">{% trans "Date" %}</a>
+                <a href="?view={{ view_type }}&sort=author&status={{ status_filter }}"
+                   class="comments-tab {% if sort_by == 'author' %}is-active{% endif %}">{% trans "Author" %}</a>
+            </div>
+
+            <div class="comments-toolbar__group">
+                <span class="comments-toolbar__label">{% trans "Status" %}</span>
+                <a href="?view={{ view_type }}&sort={{ sort_by }}&status=all"
+                   class="comments-tab {% if status_filter == 'all' %}is-active{% endif %}">{% trans "All" %}</a>
+                <a href="?view={{ view_type }}&sort={{ sort_by }}&status=unapproved"
+                   class="comments-tab {% if status_filter == 'unapproved' %}is-active{% endif %}">
+                    {% trans "Pending moderation" %}{% if unapproved_count %} ({{ unapproved_count }}){% endif %}
+                </a>
+            </div>
+
+            {% if current_page_id %}
+                <a href="?view={{ view_type }}" class="comments-tab">✖ {% trans "Clear page filter" %}</a>
+            {% endif %}
+        </div>
+
+        <div class="comments-bulk-actions">
+            <button id="select-all-toggle" class="btn btn-ghost btn-small">{% trans "Select all" %}</button>
+            <button id="bulk-approve" class="btn btn-approve btn-small">✓ {% trans "Approve selected" %}</button>
+            <button id="bulk-delete" class="btn btn-delete btn-small">🗑 {% trans "Delete selected" %}</button>
+        </div>
+
+        {% if view_type == 'tree' %}
+            {% if comment_queryset %}
+                <div class="comment-tree">
+                    {% recursetree comment_queryset %}
+                        <div class="comment-node {% if not node.is_approved %}comment-node--pending{% endif %}"
+                             style="margin-left: {% widthratio node.level 1 24 %}px">
+                            <div class="comment-node__header">
+                                <input type="checkbox" class="select-comment" value="{{ node.id }}">
+                                {{ node.avatar_tag }}
+                                <strong>{{ node.display_author_name }}</strong>
+                                <span class="comment-node__date">{{ node.date_created|date:"d.m.Y H:i" }}</span>
+                                {% if node.is_approved %}
+                                    <span class="status-tag status-tag--primary">{% trans "Approved" %}</span>
+                                {% else %}
+                                    <span class="status-tag status-tag--warning">{% trans "Moderation" %}</span>
+                                {% endif %}
+                                <div class="comment-node__actions">
+                                    {% if not node.is_approved %}
+                                        <button class="btn btn-approve btn-xs approve-btn" data-id="{{ node.id }}">{% trans "Approve" %}</button>
+                                    {% endif %}
+                                    <a href="{{ node.page.url }}" target="_blank" class="btn btn-icon" title="{% trans 'Open on site' %}">🔗</a>
+                                    <a href="{{ node.edit_url }}" class="btn btn-icon" title="{% trans 'Edit' %}">✏️</a>
+                                    <button class="btn btn-icon btn-delete delete-btn" data-id="{{ node.id }}" title="{% trans 'Delete' %}">🗑</button>
+                                </div>
+                            </div>
+                            <div class="comment-node__content">{{ node.content|striptags|safe|truncatechars:160 }}</div>
+                            {% if not node.is_leaf_node %}
+                                <div class="comment-node__children">{{ children }}</div>
+                            {% endif %}
+                        </div>
+                    {% endrecursetree %}
+                </div>
+            {% else %}
+                <p class="help-block help-info">{% trans "No comments to display." %}</p>
+            {% endif %}
+        {% else %}
+            {% if page_obj %}
+                <table class="listing">
+                    <thead>
+                        <tr>
+                            <th style="width:30px;"><input type="checkbox" id="select-all"></th>
+                            <th>{% trans "Author" %}</th>
+                            <th>{% trans "Comment" %}</th>
+                            <th>{% trans "Page" %}</th>
+                            <th>{% trans "Date" %}</th>
+                            <th>{% trans "Status" %}</th>
+                            <th>{% trans "Actions" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for comment in page_obj %}
+                            <tr>
+                                <td><input type="checkbox" class="select-comment" value="{{ comment.id }}"></td>
+                                <td class="comments-author-cell">
+                                    {{ comment.avatar_tag }}
+                                    <div>
+                                        <strong>{{ comment.display_author_name }}</strong>
+                                        {% if comment.display_author_email %}
+                                            <div class="comments-author-cell__email">{{ comment.display_author_email }}</div>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td>{{ comment.content|striptags|safe|truncatechars:100 }}</td>
+                                <td>
+                                    {{ comment.page.title }}
+                                    <div class="comments-filter-icons">
+                                        <a href="?page_id={{ comment.page.id }}&view=list" title="{% trans 'Only this page (list)' %}">📋</a>
+                                        <a href="?page_id={{ comment.page.id }}&view=tree" title="{% trans 'Only this page (tree)' %}">🌳</a>
+                                        <a href="{{ comment.page.url }}" target="_blank" title="{% trans 'Open on site' %}">🔗</a>
+                                    </div>
+                                </td>
+                                <td>{{ comment.date_created|date:"d.m.Y H:i" }}</td>
+                                <td>
+                                    {% if comment.is_approved %}
+                                        <span class="status-tag status-tag--primary">{% trans "Approved" %}</span>
+                                    {% else %}
+                                        <span class="status-tag status-tag--warning">{% trans "Moderation" %}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="comment-node__actions">
+                                        {% if not comment.is_approved %}
+                                            <button class="btn btn-approve btn-xs approve-btn" data-id="{{ comment.id }}">{% trans "Approve" %}</button>
+                                        {% endif %}
+                                        <a href="{{ comment.edit_url }}" class="btn btn-icon" title="{% trans 'Edit' %}">✏️</a>
+                                        <button class="btn btn-icon btn-delete delete-btn" data-id="{{ comment.id }}" title="{% trans 'Delete' %}">🗑</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="help-block help-info">{% trans "No comments to display." %}</p>
+            {% endif %}
+        {% endif %}
+
+        {% if page_obj.paginator.num_pages > 1 %}
+            <div class="comments-pagination">
+                {% if page_obj.has_previous %}
+                    <a class="btn btn-ghost btn-small" href="?view={{ view_type }}&page={{ page_obj.previous_page_number }}&sort={{ sort_by }}&status={{ status_filter }}">« {% trans "Previous" %}</a>
+                {% endif %}
+                <span>{% blocktrans with number=page_obj.number num_pages=page_obj.paginator.num_pages %}Page {{ number }} of {{ num_pages }}{% endblocktrans %}</span>
+                {% if page_obj.has_next %}
+                    <a class="btn btn-ghost btn-small" href="?view={{ view_type }}&page={{ page_obj.next_page_number }}&sort={{ sort_by }}&status={{ status_filter }}">{% trans "Next" %} »</a>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,497 @@
+/* ==========================================================================
+   WAGTAIL MPTT COMMENTS — ПОЛНЫЙ ФАЙЛ СТИЛЕЙ (front-end)
+   ========================================================================== */
+
+:root {
+    --mptt-accent: #007d7e;
+    --mptt-accent-hover: #26b5a9;
+    --mptt-bg: #242424;
+    --mptt-card-bg: #1e1e1e;
+    --mptt-card-head: #2a2a2a;
+    --mptt-text: #eeeeee;
+    --mptt-muted: #888888;
+    --mptt-border: #333333;
+    --mptt-input-bg: #2a2a2a;
+    --mptt-radius: 6px;
+}
+
+/* 1. Секция комментариев */
+.comments-section-wrapper {
+    margin-top: 2.5rem;
+    color: var(--mptt-text);
+    font-family: inherit;
+}
+
+.comments-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--mptt-border);
+    padding-bottom: 0.5rem;
+}
+
+/* 2. Дерево комментариев MPTT */
+.comments-tree-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.comment-card-node {
+    background: var(--mptt-card-bg);
+    border: 1px solid var(--mptt-border);
+    border-left: 3px solid var(--mptt-accent);
+    border-radius: var(--mptt-radius);
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 0.6rem;
+}
+
+/* Вложенная карточка уже находится внутри ветки с собственной полосой слева
+   (.comment-children-branch) — убираем полосу у самой карточки,
+   чтобы не рисовались две параллельные линии одного цвета. */
+.comment-children-branch > .comment-branch > .comment-card-node {
+    border-left: 1px solid var(--mptt-border);
+}
+
+.comment-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--mptt-card-head);
+    border-bottom: 1px solid var(--mptt-border);
+    padding: 0.5rem 0.85rem;
+    font-size: 0.85rem;
+}
+
+.comment-card-identity {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.comment-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.comment-avatar--fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--mptt-accent);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.8rem;
+}
+
+.comment-card-author {
+    font-weight: 700;
+    color: var(--mptt-accent-hover);
+}
+
+.comment-card-date {
+    color: var(--mptt-muted);
+    font-size: 0.8em;
+}
+
+.comment-card-body {
+    padding: 0.85rem 1rem;
+    line-height: 1.6;
+    font-size: 0.95rem;
+    color: var(--mptt-text);
+}
+.comment-card-body p { margin-bottom: 0.5rem; }
+.comment-card-body p:last-child { margin-bottom: 0; }
+
+.comment-card-body blockquote {
+    margin: 0.6rem 0;
+    padding: 0.4rem 0.8rem;
+    border-left: 3px solid var(--mptt-accent);
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--mptt-muted);
+    font-style: italic;
+    border-radius: 0 var(--mptt-radius) var(--mptt-radius) 0;
+}
+
+.comment-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.4rem 0.85rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0.1);
+    font-size: 0.8rem;
+}
+
+.comment-quote-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--mptt-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.comment-reply-btn {
+    color: var(--mptt-accent-hover);
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+}
+.comment-reply-btn:hover { text-decoration: underline; }
+
+/* 3. Форма отправки */
+.comment-compose-box {
+    background: var(--mptt-bg);
+    border: 1px solid var(--mptt-border);
+    border-radius: var(--mptt-radius);
+    padding: 1.25rem;
+    margin-top: 2rem;
+}
+
+.comment-guest-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+@media (max-width: 600px) {
+    .comment-guest-fields { grid-template-columns: 1fr; }
+}
+
+.comment-compose-box input[type="text"],
+.comment-compose-box input[type="email"],
+.comment-compose-box input[type="number"] {
+    width: 100%;
+    padding: 8px 12px !important;
+    border: 1px solid #3a3a3a !important;
+    border-radius: 4px !important;
+    background: var(--mptt-input-bg) !important;
+    color: #eeeeee !important;
+    box-sizing: border-box !important;
+    font-family: inherit;
+    font-size: 0.9rem;
+    outline: none;
+}
+.comment-compose-box input:focus {
+    border-color: var(--mptt-accent) !important;
+}
+
+/* Защита от белого фона и чёрного текста Chrome Autofill */
+.comment-compose-box input:-webkit-autofill,
+.comment-compose-box input:-webkit-autofill:hover,
+.comment-compose-box input:-webkit-autofill:focus,
+.comment-compose-box input:-internal-autofill-selected {
+    -webkit-text-fill-color: #ffffff !important;
+    color: #ffffff !important;
+    -webkit-box-shadow: 0 0 0px 1000px #2a2a2a inset !important;
+    box-shadow: 0 0 0px 1000px #2a2a2a inset !important;
+    caret-color: #ffffff !important;
+}
+
+/* Чекбоксы: аккуратные темные квадраты */
+.comment-card-actions input[type="checkbox"],
+.comment-footer-row input[type="checkbox"],
+.comment-quote-label input[type="checkbox"],
+.comment-notify-label input[type="checkbox"] {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    width: 16px !important;
+    height: 16px !important;
+    background: #2a2a2a !important;
+    border: 1px solid #555555 !important;
+    border-radius: 3px !important;
+    cursor: pointer !important;
+    display: inline-grid !important;
+    place-content: center !important;
+    margin: 0 !important;
+    vertical-align: middle !important;
+    outline: none !important;
+}
+
+.comment-card-actions input[type="checkbox"]:checked,
+.comment-footer-row input[type="checkbox"]:checked,
+.comment-quote-label input[type="checkbox"]:checked,
+.comment-notify-label input[type="checkbox"]:checked {
+    background: #007d7e !important;
+    border-color: #007d7e !important;
+}
+
+.comment-card-actions input[type="checkbox"]:checked::before,
+.comment-footer-row input[type="checkbox"]:checked::before,
+.comment-quote-label input[type="checkbox"]:checked::before,
+.comment-notify-label input[type="checkbox"]:checked::before {
+    content: "✓" !important;
+    color: #ffffff !important;
+    font-size: 11px !important;
+    font-weight: bold !important;
+}
+
+/* Капча без белых стрелочек */
+.comment-captcha-row {
+    margin: 0.75rem 0;
+    font-size: 0.85rem;
+    color: var(--mptt-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.comment-captcha-row input {
+    width: 80px !important;
+    text-align: center !important;
+    -moz-appearance: textfield !important;
+}
+.comment-captcha-row input::-webkit-outer-spin-button,
+.comment-captcha-row input::-webkit-inner-spin-button {
+    -webkit-appearance: none !important;
+    margin: 0 !important;
+}
+
+.comment-footer-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.comment-notify-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.85rem;
+    color: var(--mptt-muted);
+    cursor: pointer;
+}
+
+.comment-submit-button {
+    background: var(--mptt-accent);
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 9px 20px;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.15s ease;
+}
+.comment-submit-button:hover { background: var(--mptt-accent-hover); }
+
+/* 4. Стилизация django-prose-editor */
+.comment-compose-box .prose-editor {
+    border: 1px solid #3a3a3a !important;
+    border-radius: 4px !important;
+    overflow: hidden !important;
+    background: var(--mptt-card-bg) !important;
+}
+
+.comment-compose-box .prose-menubar {
+    background: var(--mptt-card-head) !important;
+    border-bottom: 1px solid var(--mptt-border) !important;
+    padding: 4px 6px !important;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+}
+
+.comment-compose-box .prose-menubar__dropdown,
+.comment-compose-box .prose-menubar__selected,
+.comment-compose-box .prose-menubar__dropdown button {
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
+.comment-compose-box .prose-menubar__selected {
+    border-right: 1px solid #3a3a3a !important;
+    padding-right: 4px !important;
+    margin-right: 4px !important;
+}
+
+.comment-compose-box .prose-editor .ProseMirror {
+    background: var(--mptt-card-bg) !important;
+    color: var(--mptt-text) !important;
+    min-height: 120px !important;
+    padding: 10px 12px !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.comment-compose-box .prose-menubar__button {
+    background: transparent !important;
+    color: var(--mptt-muted) !important;
+    border: none !important;
+    border-radius: 3px;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.comment-compose-box .prose-menubar__button:hover:not(.disabled) {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #fff !important;
+}
+.comment-compose-box .prose-menubar__button.active {
+    background: var(--mptt-accent) !important;
+    color: #fff !important;
+}
+
+/* Сообщения об успешной отправке */
+.comment-messages-box { margin-bottom: 1rem; }
+.comment-alert {
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+.comment-alert-success {
+    background: rgba(0, 125, 126, 0.15);
+    border: 1px solid #007d7e;
+    color: #26b5a9;
+}
+.comment-alert-error {
+    background: rgba(255, 107, 107, 0.15);
+    border: 1px solid #ff6b6b;
+    color: #ff8585;
+}
+
+/* Вложенная ветка дерева */
+.comment-children-branch {
+    margin-left: 2rem !important;
+    padding-left: 1rem !important;
+    border-left: 2px solid var(--mptt-accent, #007d7e) !important;
+    margin-top: 0.5rem !important;
+}
+@media (max-width: 600px) {
+    .comment-children-branch { margin-left: 1rem !important; padding-left: 0.5rem !important; }
+}
+
+/* =========================================================
+   ВЫДЕЛЕНИЕ БЛОКА КОДА (<pre><code>)
+   ========================================================= */
+
+.comment-card-body pre,
+.comment-compose-box .ProseMirror pre,
+.prose-editor .ProseMirror pre {
+    background: #141414 !important;
+    color: #98c379 !important;
+    border: 1px solid #333333 !important;
+    border-left: 3px solid var(--mptt-accent, #007d7e) !important;
+    border-radius: 4px !important;
+    padding: 10px 14px !important;
+    margin: 0.8rem 0 !important;
+    font-family: 'Courier New', Monaco, Consolas, monospace !important;
+    font-size: 0.88rem !important;
+    line-height: 1.5 !important;
+    overflow-x: auto !important;
+    white-space: pre !important;
+}
+
+.comment-card-body pre code,
+.comment-compose-box .ProseMirror pre code {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    color: inherit !important;
+    font-size: inherit !important;
+}
+
+.comment-card-body p code,
+.comment-card-body li code,
+.comment-compose-box .ProseMirror p code {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #e06c75 !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    padding: 2px 5px !important;
+    border-radius: 3px !important;
+    font-family: monospace !important;
+    font-size: 0.88em !important;
+}
+
+/* ==========================================================================
+   Роли автора и SVG-аватары
+   ========================================================================== */
+
+.comment-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.comment-avatar--fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* Цвет SVG-иконки задаётся через currentColor — сама иконка везде одна,
+   меняется только "color" обёртки в зависимости от роли автора. */
+.comment-avatar--guest      { color: var(--mptt-muted); }
+.comment-avatar--member     { color: var(--mptt-text); }
+.comment-avatar--moderator  { color: #5aa9e6; }
+.comment-avatar--admin      { color: var(--mptt-accent-hover); }
+
+.comment-role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    line-height: 1.6;
+}
+
+.comment-role-badge--admin {
+    background: rgba(38, 181, 169, 0.16);
+    color: var(--mptt-accent-hover);
+}
+.comment-role-badge--moderator {
+    background: rgba(90, 169, 230, 0.16);
+    color: #5aa9e6;
+}
+.comment-role-badge--member {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--mptt-muted);
+}
+
+/* ==========================================================================
+   Переход по ссылке на конкретный комментарий (#comment-N)
+   ========================================================================== */
+
+.comment-card-node {
+    scroll-margin-top: 24px;
+}
+
+.comment-card-node:target {
+    border-left-color: var(--mptt-accent-hover);
+    box-shadow: 0 0 0 1px var(--mptt-accent-hover);
+    animation: comment-highlight 2s ease-out;
+}
+
+@keyframes comment-highlight {
+    0%   { background: rgba(38, 181, 169, 0.18); }
+    100% { background: var(--mptt-card-bg); }
+}

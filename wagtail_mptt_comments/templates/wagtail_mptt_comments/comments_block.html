@@ -1,0 +1,104 @@
+{% load mptt_tags static i18n %}
+
+<link rel="stylesheet" href="{% static 'wagtail_mptt_comments/css/comments.css' %}">
+{{ comment_form.media }}
+
+<h2 class="comments-title">{% trans "Comments" %} ({{ comments_count }})</h2>
+
+{% if comment_roots %}
+    <div class="comments-tree-container">
+        {% recursetree comment_roots %}
+            <div class="comment-branch">
+                <div class="comment-card-node" id="comment-{{ node.id }}">
+                    <div class="comment-card-header">
+                        <span class="comment-card-identity">
+                            {{ node.avatar_tag }}
+                            <span class="comment-card-author">{{ node.display_author_name }}</span>
+                            {% if node.get_author_role != "guest" %}
+                                <span class="comment-role-badge comment-role-badge--{{ node.get_author_role }}">
+                                    {{ node.get_author_role_label }}
+                                </span>
+                            {% endif %}
+                        </span>
+                        <span class="comment-card-date">{{ node.date_created|date:"d.m.Y H:i" }}</span>
+                    </div>
+
+                    <div class="comment-card-body" id="comment_text_{{ node.id }}">
+                        {{ node.content|safe }}
+                    </div>
+
+                    {% if node.response %}
+                        <div class="comment-card-body" style="border-top:1px dashed var(--mptt-border); background: rgba(14,138,134,0.08);">
+                            <strong style="color: var(--mptt-accent-hover);">{% trans "Author's response:" %}</strong>
+                            {{ node.response|safe }}
+                        </div>
+                    {% endif %}
+
+                    <div class="comment-card-actions">
+                        <label class="comment-quote-label">
+                            <input type="checkbox" id="quote_{{ node.id }}"> {% trans "Quote" %}
+                        </label>
+                        <button type="button" class="comment-reply-btn"
+                                data-comment-id="{{ node.id }}"
+                                data-author="{{ node.display_author_name }}">{% trans "Reply" %}</button>
+                    </div>
+                </div>
+
+                {% if not node.is_leaf_node %}
+                    <div class="comment-children-branch">{{ children }}</div>
+                {% endif %}
+            </div>
+        {% endrecursetree %}
+    </div>
+{% else %}
+    <p style="color: var(--mptt-muted); font-style: italic;">{% trans "No comments yet. Be the first!" %}</p>
+{% endif %}
+
+<div class="comment-compose-box" id="comment-form-anchor">
+    <h3 style="margin-top: 0; margin-bottom: 1rem;">{% trans "Leave a comment" %}</h3>
+
+    {% if messages %}
+        <div class="comment-messages-box">
+            {% for message in messages %}
+                <div class="comment-alert comment-alert-{{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'wagtail_mptt_comments:add_comment_to_page' page.id %}" data-form-type="comment">
+        {% csrf_token %}
+        {{ comment_form.parent }}
+        {{ comment_form.submit_time }}
+        <div style="display:none;" aria-hidden="true">{{ comment_form.website_url }}</div>
+
+        {% if not request.user.is_authenticated %}
+            <div class="comment-guest-fields">
+                <div>{{ comment_form.author_name }}</div>
+                <div>{{ comment_form.author_email }}</div>
+            </div>
+        {% else %}
+            <p style="margin-bottom: 0.75rem; color: var(--mptt-muted);">
+                {% trans "You are logged in as:" %} <strong style="color: var(--mptt-accent-hover);">{{ request.user.username }}</strong>
+            </p>
+        {% endif %}
+
+        <div>{{ comment_form.content }}</div>
+
+        {% if not request.user.is_authenticated %}
+            <div class="comment-captcha-row">
+                <label>{{ comment_form.captcha_answer.label }}</label>
+                {{ comment_form.captcha_answer }}
+            </div>
+        {% endif %}
+
+        <div class="comment-footer-row">
+            <label class="comment-notify-label">
+                {{ comment_form.notify_on_reply }} {% trans "Notify me of replies via email" %}
+            </label>
+            <button type="submit" class="comment-submit-button">{% trans "Submit comment" %}</button>
+        </div>
+    </form>
+</div>
+
+<script src="{% static 'wagtail_mptt_comments/js/prose_editor_codeblock.js' %}"></script>
+<script src="{% static 'wagtail_mptt_comments/js/comment_handler.js' %}"></script>

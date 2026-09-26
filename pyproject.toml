@@ -1,0 +1,28 @@
+[build-system]
+requires = ["flit_core >=3.2,<4", "nh3>=0.2.14"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "wagtail-mptt-comments"
+version = "0.1.0"
+description = "Nested MPTT comments with spam protection and AJAX admin moderation for Wagtail CMS."
+readme = "README.md"
+authors = [{ name = "Vladimir Tarasov" }]
+license = { text = "MIT" }
+classifiers = [
+    "Framework :: Django",
+    "Framework :: Wagtail",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+    "wagtail>=6.0",
+    "django-mptt>=0.16.0",
+    "bleach>=6.0.0",
+    "django-prose-editor>=0.26",
+]
+
+[project.urls]
+Home = "https://github.com/vovansrnd/wagtail-mptt-comments"
+Source = "https://github.com/vovansrnd/wagtail-mptt-comments"
+Issues = "https://github.com/vovansrnd/wagtail-mptt-comments/issues"
