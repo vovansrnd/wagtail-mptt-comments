@@ -1,0 +1,21 @@
+{# wagtail_mptt_comments/templates/wagtail_mptt_comments/widgets/latest_comments.html #}
+{% load mptt_comment_tags %}
+<div class="widget widget-comments">
+    <h3 class="widget-title">Последние комментарии</h3>
+    {% get_latest_comments 5 as latest_comments %}
+    {% if latest_comments %}
+        <ul class="widget-list">
+            {% for c in latest_comments %}
+                <li class="widget-list-item">
+                    <a href="{{ c.page.url }}#comment-{{ c.id }}" class="widget-list-link">
+                        <strong>{{ c.display_author_name }}</strong>
+                        <span class="widget-list-excerpt">{{ c.content|striptags|truncatechars:60 }}</span>
+                    </a>
+                    <span class="widget-list-meta">{{ c.date_created|date:"d.m.Y" }}</span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="widget-empty">Пока нет комментариев.</p>
+    {% endif %}
+</div>
