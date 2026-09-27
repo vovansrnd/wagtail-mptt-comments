@@ -1,6 +1,5 @@
 // wagtail_mptt_comments/static/wagtail_mptt_comments/js/comment_handler.js
 document.addEventListener('DOMContentLoaded', function () {
-    // Находим форму по любому из используемых селекторов
     const commentForm = document.querySelector('form[data-form-type="comment"]') ||
                         document.querySelector('form.compose-form') ||
                         document.querySelector('.comment-compose form');
@@ -8,37 +7,44 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const parentInput = commentForm.querySelector('input[name="parent"]');
 
-    // ── Распахиваем форму, если она свернута (для тем ZenWay / Nova) ──
+    // ── 1. Взаимное исключение чекбоксов (только ОДИН чекбокс цитирования активен!) ──
+    document.addEventListener('change', function (e) {
+        if (e.target.matches('.with-quote-checkbox, input[id^="quote_"], input[id^="with_quote_"]')) {
+            if (e.target.checked) {
+                document.querySelectorAll('.with-quote-checkbox, input[id^="quote_"], input[id^="with_quote_"]').forEach(cb => {
+                    if (cb !== e.target) cb.checked = false;
+                });
+            }
+        }
+    });
+
+    // ── 2. Распахиваем компактную форму (ZenWay / Nova) ──
     function revealComposeForm() {
         const trigger = document.getElementById('compose-trigger') || document.querySelector('.compose-trigger');
         const body = document.getElementById('compose-body') || document.querySelector('.compose-body');
 
         if (body) {
             body.hidden = false;
+            body.style.display = 'block';
         }
         if (trigger) {
             trigger.hidden = true;
-            trigger.setAttribute('aria-expanded', 'true');
+            trigger.style.display = 'none';
         }
-
-        // Вызываем кастомное событие (для совместимости)
-        document.dispatchEvent(new CustomEvent('reply-requested'));
     }
 
-    // ── Функция вставки контента в ProseMirror ──
-    function insertIntoEditor(html) {
-        const editorDiv = commentForm.querySelector('.ProseMirror');
-        if (!editorDiv) {
-            // Если форма только раскрылась, даем 100мс на инициализацию
-            setTimeout(() => insertIntoEditor(html), 100);
-            return;
-        }
+    // ── 3. Надежная вставка контента в ProseMirror ──
+    function insertIntoEditor(htmlContent) {
+        const editorDiv = commentForm.querySelector('.ProseMirror[contenteditable="true"]');
+        if (!editorDiv) return;
+
         editorDiv.focus();
 
+        // Способ через имитацию Paste (ProseMirror сам переводит HTML в свои узлы)
         try {
             const dt = new DataTransfer();
-            dt.setData('text/html', html);
-            dt.setData('text/plain', html.replace(/<[^>]+>/g, ''));
+            dt.setData('text/html', htmlContent);
+            dt.setData('text/plain', htmlContent.replace(/<[^>]+>/g, ''));
             const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
             editorDiv.dispatchEvent(ev);
             editorDiv.dispatchEvent(new InputEvent('input', { bubbles: true }));
@@ -51,13 +57,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 range.collapse(false);
                 sel.removeAllRanges();
                 sel.addRange(range);
-            }, 50);
+            }, 60);
         } catch (e) {
-            editorDiv.innerHTML = editorDiv.innerHTML + html;
+            editorDiv.innerHTML = htmlContent + '<p><br class="ProseMirror-trailingBreak"></p>';
         }
     }
 
-    // ── Обработчик клика «Ответить» ──
+    // ── 4. Обработчик клика «Ответить» ──
     document.addEventListener('click', function (e) {
         const btn = e.target.closest('.comment-reply-btn');
         if (!btn) return;
@@ -68,40 +74,44 @@ document.addEventListener('DOMContentLoaded', function () {
         const commentId = btn.dataset.commentId;
         const author = btn.dataset.author || btn.dataset.commentAuthor || '';
 
-        // 1. Заполняем ID родителя
+        // Заполняем ID родительского комментария
         if (parentInput && commentId) {
             parentInput.value = commentId;
         }
 
-        // 2. Ищем текст цитаты (поддерживаем оба варианта разметки ID)
-        const quoteCb = document.getElementById('quote_' + commentId) || document.getElementById('with_quote_' + commentId);
-        const textEl = document.getElementById('comment_text_' + commentId) || document.getElementById('comment-html-' + commentId);
+        // Ищем чекбокс и блок текста комментария
+        const quoteCb = document.getElementById('quote_' + commentId) ||
+                        document.getElementById('with_quote_' + commentId);
+        const textEl = document.getElementById('comment_text_' + commentId) ||
+                       document.getElementById('comment-html-' + commentId);
 
         let html = '';
         if (quoteCb && quoteCb.checked && textEl) {
             const rawContent = textEl.innerHTML.trim();
-            html = `<blockquote><p><strong>@${author}</strong></p><p>${rawContent}</p></blockquote><p><br class="ProseMirror-trailingBreak"></p>`;
-            quoteCb.checked = false;
+            html = `<blockquote><p><strong>@${author}</strong></p><p>${rawContent}</p></blockquote><p></p>`;
+            quoteCb.checked = false; // сбрасываем галочку
         } else if (author) {
             html = `<p><strong>@${author}</strong>,&nbsp;</p>`;
         }
 
-        // 3. РАСПАХИВАЕМ ФОРМУ!
+        // 1. Распахиваем форму
         revealComposeForm();
 
-        // 4. Мягко скроллим к ней
+        // 2. Скроллим к ней
         const anchor = document.getElementById('comment-form-anchor') || commentForm;
         if (anchor) {
             anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
 
-        // 5. Вставляем текст цитаты
+        // 3. Вставляем цитату с паузой 220мс (гарантирует, что ProseMirror стал видимым и готов к приему)
         if (html) {
-            setTimeout(() => insertIntoEditor(html), 120);
+            setTimeout(() => {
+                insertIntoEditor(html);
+            }, 220);
         }
     });
 
-    // ── Обработчик клика на сам плейсхолдер формы (если кликнули «Написать комментарий…») ──
+    // ── 5. Клик на сам плейсхолдер «Написать комментарий…» ──
     const composeTrigger = document.getElementById('compose-trigger');
     if (composeTrigger) {
         composeTrigger.addEventListener('click', function () {
@@ -109,19 +119,23 @@ document.addEventListener('DOMContentLoaded', function () {
             setTimeout(() => {
                 const ed = commentForm.querySelector('.ProseMirror');
                 if (ed) ed.focus();
-            }, 100);
+            }, 150);
         });
     }
 
+    // ── 6. Кнопка «Отмена» ──
     const cancelBtn = document.getElementById('compose-cancel');
     if (cancelBtn) {
         cancelBtn.addEventListener('click', function () {
             const trigger = document.getElementById('compose-trigger');
             const body = document.getElementById('compose-body');
-            if (body) body.hidden = true;
+            if (body) {
+                body.hidden = true;
+                body.style.display = 'none';
+            }
             if (trigger) {
                 trigger.hidden = false;
-                trigger.setAttribute('aria-expanded', 'false');
+                trigger.style.display = 'flex';
             }
             if (parentInput) parentInput.value = '';
         });

@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "wagtail-mptt-comments"
-version = "0.1.1"
+version = "0.1.2"
 description = "Nested MPTT comments with spam protection and AJAX admin moderation for Wagtail CMS."
 readme = "README.md"
 authors = [{ name = "Vladimir Tarasov" }]
