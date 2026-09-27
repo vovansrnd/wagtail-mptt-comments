@@ -1,25 +1,38 @@
 // wagtail_mptt_comments/static/wagtail_mptt_comments/js/comment_handler.js
 document.addEventListener('DOMContentLoaded', function () {
-    const commentForm = document.querySelector('form[data-form-type="comment"]');
+    // Находим форму по любому из используемых селекторов
+    const commentForm = document.querySelector('form[data-form-type="comment"]') ||
+                        document.querySelector('form.compose-form') ||
+                        document.querySelector('.comment-compose form');
     if (!commentForm) return;
 
     const parentInput = commentForm.querySelector('input[name="parent"]');
-    const editorDiv = commentForm.querySelector('.ProseMirror');
 
-    // ── Вспомогательная функция: перенос курсора в самый конец ──
-    function moveCursorToEnd(element) {
-        element.focus();
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        range.collapse(false); // false = переместить курсор в конец содержимого
-        selection.removeAllRanges();
-        selection.addRange(range);
+    // ── Распахиваем форму, если она свернута (для тем ZenWay / Nova) ──
+    function revealComposeForm() {
+        const trigger = document.getElementById('compose-trigger') || document.querySelector('.compose-trigger');
+        const body = document.getElementById('compose-body') || document.querySelector('.compose-body');
+
+        if (body) {
+            body.hidden = false;
+        }
+        if (trigger) {
+            trigger.hidden = true;
+            trigger.setAttribute('aria-expanded', 'true');
+        }
+
+        // Вызываем кастомное событие (для совместимости)
+        document.dispatchEvent(new CustomEvent('reply-requested'));
     }
 
-    // ── Вставка HTML в ProseMirror с правильным курсором ──
+    // ── Функция вставки контента в ProseMirror ──
     function insertIntoEditor(html) {
-        if (!editorDiv) return;
+        const editorDiv = commentForm.querySelector('.ProseMirror');
+        if (!editorDiv) {
+            // Если форма только раскрылась, даем 100мс на инициализацию
+            setTimeout(() => insertIntoEditor(html), 100);
+            return;
+        }
         editorDiv.focus();
 
         try {
@@ -28,53 +41,89 @@ document.addEventListener('DOMContentLoaded', function () {
             dt.setData('text/plain', html.replace(/<[^>]+>/g, ''));
             const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
             editorDiv.dispatchEvent(ev);
-            editorDiv.dispatchEvent(new Event('input', { bubbles: true }));
+            editorDiv.dispatchEvent(new InputEvent('input', { bubbles: true }));
 
-            // С небольшой задержкой ставим курсор в конец (под цитату или после запятой с пробелом)
+            // Ставим курсор в самый конец
             setTimeout(() => {
-                moveCursorToEnd(editorDiv);
+                const sel = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(editorDiv);
+                range.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(range);
             }, 50);
         } catch (e) {
             editorDiv.innerHTML = editorDiv.innerHTML + html;
-            moveCursorToEnd(editorDiv);
         }
     }
 
-    // ── Клик по кнопке «Ответить» ──
+    // ── Обработчик клика «Ответить» ──
     document.addEventListener('click', function (e) {
         const btn = e.target.closest('.comment-reply-btn');
         if (!btn) return;
 
         e.preventDefault();
+        e.stopPropagation();
+
         const commentId = btn.dataset.commentId;
-        const author = btn.dataset.author || '';
+        const author = btn.dataset.author || btn.dataset.commentAuthor || '';
 
-        if (parentInput) parentInput.value = commentId;
+        // 1. Заполняем ID родителя
+        if (parentInput && commentId) {
+            parentInput.value = commentId;
+        }
 
-        const quoteCb = document.getElementById('quote_' + commentId);
-        const textEl = document.getElementById('comment_text_' + commentId);
+        // 2. Ищем текст цитаты (поддерживаем оба варианта разметки ID)
+        const quoteCb = document.getElementById('quote_' + commentId) || document.getElementById('with_quote_' + commentId);
+        const textEl = document.getElementById('comment_text_' + commentId) || document.getElementById('comment-html-' + commentId);
 
         let html = '';
-
-        // 1. Если выбрано с цитированием:
-        // Ник идет в заголовке цитаты, сам текст в отдельном параграфе внутри цитаты,
-        // а под цитатой создается пустой параграф для ввода ответа!
         if (quoteCb && quoteCb.checked && textEl) {
             const rawContent = textEl.innerHTML.trim();
             html = `<blockquote><p><strong>@${author}</strong></p><p>${rawContent}</p></blockquote><p><br class="ProseMirror-trailingBreak"></p>`;
             quoteCb.checked = false;
-        }
-        // 2. Если обычный ответ:
-        // После запятой стоит жесткий неразрывный пробел (&nbsp;), чтобы курсор не лип к запятой!
-        else if (author) {
+        } else if (author) {
             html = `<p><strong>@${author}</strong>,&nbsp;</p>`;
         }
 
-        const anchor = document.getElementById('comment-form-anchor');
-        if (anchor) anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // 3. РАСПАХИВАЕМ ФОРМУ!
+        revealComposeForm();
 
+        // 4. Мягко скроллим к ней
+        const anchor = document.getElementById('comment-form-anchor') || commentForm;
+        if (anchor) {
+            anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        // 5. Вставляем текст цитаты
         if (html) {
-            setTimeout(() => insertIntoEditor(html), 150);
+            setTimeout(() => insertIntoEditor(html), 120);
         }
     });
+
+    // ── Обработчик клика на сам плейсхолдер формы (если кликнули «Написать комментарий…») ──
+    const composeTrigger = document.getElementById('compose-trigger');
+    if (composeTrigger) {
+        composeTrigger.addEventListener('click', function () {
+            revealComposeForm();
+            setTimeout(() => {
+                const ed = commentForm.querySelector('.ProseMirror');
+                if (ed) ed.focus();
+            }, 100);
+        });
+    }
+
+    const cancelBtn = document.getElementById('compose-cancel');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', function () {
+            const trigger = document.getElementById('compose-trigger');
+            const body = document.getElementById('compose-body');
+            if (body) body.hidden = true;
+            if (trigger) {
+                trigger.hidden = false;
+                trigger.setAttribute('aria-expanded', 'false');
+            }
+            if (parentInput) parentInput.value = '';
+        });
+    }
 });
