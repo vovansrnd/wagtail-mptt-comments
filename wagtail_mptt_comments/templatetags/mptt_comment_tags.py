@@ -1,40 +1,60 @@
 import nh3
 from django import template
 from django.utils.safestring import mark_safe
+from wagtail.models import Page, Site
 from wagtail_mptt_comments.forms import PublicCommentForm
+from wagtail_mptt_comments.models import Comment
 
 register = template.Library()
+
 
 @register.filter(is_safe=True)
 def clean_comment_html(value):
     if not value:
         return ""
 
-    allowed_tags = {'p', 'br', 'b', 'strong', 'i', 'em', 'u', 'strike', 'a', 'blockquote', 'ol', 'ul', 'li', 'code', 'pre'}
+    allowed_tags = {
+        'p', 'br', 'b', 'strong', 'i', 'em', 'u', 'strike',
+        'a', 'blockquote', 'ol', 'ul', 'li', 'code', 'pre'
+    }
     allowed_attrs = {'a': {'href', 'title', 'target', 'rel'}}
 
     cleaned_html = nh3.clean(
         str(value),
         tags=allowed_tags,
         attributes=allowed_attrs,
-        link_rel="noopener noreferrer" # Бонус: защита от фишинга по ссылкам от пользователей
+        link_rel="noopener noreferrer"
     )
     return mark_safe(cleaned_html)
 
-@register.simple_tag
-def get_latest_comments(count=5):
-    from wagtail_mptt_comments.models import Comment
-    return Comment.objects.filter(is_approved=True).select_related("page", "user").order_by("-date_created")[:count]
+
+@register.simple_tag(takes_context=True)
+def get_latest_comments(context, count=5):
+    """
+    Возвращает последние комментарии.
+    Если передан context (Wagtail Multi-site), фильтрует строго по страницам текущего домена.
+    """
+    qs = Comment.objects.filter(is_approved=True)
+
+    request = context.get("request")
+    if request:
+        try:
+            site = Site.find_for_request(request)
+            if site:
+                qs = qs.filter(page__in=Page.objects.in_site(site))
+        except Exception:
+            pass
+
+    return qs.select_related("page", "user").order_by("-date_created")[:count]
+
 
 @register.inclusion_tag('wagtail_mptt_comments/comments_block.html', takes_context=True)
 def render_comments(context, page):
     """
     Рендерит дерево комментариев и форму добавления для конкретной страницы.
-    Использование в шаблоне статьи: {% render_comments page %}
     """
     request = context.get('request')
 
-    # Собираем комментарии
     if page.id and hasattr(page, "comments"):
         comment_roots = (
             page.comments.filter(is_approved=True)

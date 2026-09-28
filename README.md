@@ -8,6 +8,7 @@ Nested, threaded comments with MPTT hierarchy, multi-layer anti-spam protection,
 ## Features
 
 - **Hierarchical Threading**: Fast nested comment trees powered by `django-mptt`, with a configurable max nesting depth.
+- **Wagtail Multi-Site Support**: Built-in support for multi-domain setups. Sidebar widgets and listings automatically isolate comments per site without data leaking between domains.
 - **Three-Layer Spam Protection**:
   - Transparent honeypot traps.
   - Form submission speed verification (blocks instant bot auto-fillers).
@@ -26,6 +27,7 @@ Nested, threaded comments with MPTT hierarchy, multi-layer anti-spam protection,
 
 ![Admin Moderation Dashboard](https://raw.githubusercontent.com/vovansrnd/wagtail-mptt-comments/main/admin-moderation-preview.png)
 ![Admin Moderation Dashboard Tree](https://raw.githubusercontent.com/vovansrnd/wagtail-mptt-comments/main/admin-moderation-preview-tree.png)
+
 ## Installation
 
 ```bash
@@ -82,6 +84,7 @@ DEFAULT_FROM_EMAIL = "noreply@example.com"
 
 ## Rendering in Templates
 
+### 1. Comments Block on Page
 In your page template (e.g. `blog_page.html`), simply load the tags and call `render_comments`:
 
 ```html
@@ -91,9 +94,29 @@ In your page template (e.g. `blog_page.html`), simply load the tags and call `re
 {% block content %}
     <h1>{{ page.title }}</h1>
     
-    <!-- This tag automatically loads the CSS, the comment tree, and the reply form -->
+    <!-- This tag automatically loads the comment tree and the reply form -->
     {% render_comments page %}
 {% endblock %}
+```
+
+### 2. Latest Comments Sidebar Widget
+To display recent comments in a sidebar or footer (automatically filtered by the current site in multi-site setups):
+
+```html
+{% load mptt_comment_tags wagtailcore_tags %}
+
+{% get_latest_comments 5 as latest_comments %}
+<ul class="latest-comments-widget">
+    {% for comment in latest_comments %}
+        <li>
+            <a href="{% pageurl comment.page %}#comment-{{ comment.id }}">
+                <strong>{{ comment.display_author_name }}</strong>:
+                <span>{{ comment.content|striptags|truncatewords:10 }}</span>
+            </a>
+        </li>
+    {% endfor %}
+</ul>
+```
 
 ### Theming
 
