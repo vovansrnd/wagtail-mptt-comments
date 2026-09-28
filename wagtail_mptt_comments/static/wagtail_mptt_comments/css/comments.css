@@ -383,19 +383,24 @@
     .comment-children-branch { margin-left: 1rem !important; padding-left: 0.5rem !important; }
 }
 
-/* =========================================================
-   ВЫДЕЛЕНИЕ БЛОКА КОДА (<pre><code>)
-   ========================================================= */
+/* ==========================================================================
+   Code blocks (<pre><code>) and layout blowout protection
+   ========================================================================== */
 
-   .comment-card-node,
-   .comment-card-body,
-   .comment-compose-box,
-   .prose-editor,
-   .ProseMirror {
-       min-width: 0 !important;
-       max-width: 100% !important;
-   }
+/* Prevent flex and grid parents from expanding beyond viewport */
+.comments-section-wrapper,
+.comments-tree-container,
+.comment-card-node,
+.comment-card-body,
+.comment-children-branch,
+.comment-compose-box,
+.prose-editor,
+.ProseMirror {
+    min-width: 0 !important;
+    max-width: 100% !important;
+}
 
+/* Code block container */
 .comment-card-body pre,
 .comment-compose-box .ProseMirror pre,
 .prose-editor .ProseMirror pre {
@@ -409,16 +414,46 @@
     font-family: 'Courier New', Monaco, Consolas, monospace !important;
     font-size: 0.88rem !important;
     line-height: 1.5 !important;
+    white-space: pre !important;
 
+    /* Prevent overflow outside card boundary */
     max-width: 100% !important;
     box-sizing: border-box !important;
     overflow-x: auto !important;
-    white-space: pre !important;
+
+    /* Dark subtle scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: #3a3a3a #141414;
 }
 
+/* WebKit scrollbar styles */
+.comment-card-body pre::-webkit-scrollbar,
+.comment-compose-box .ProseMirror pre::-webkit-scrollbar,
+.prose-editor .ProseMirror pre::-webkit-scrollbar {
+    height: 6px;
+}
+.comment-card-body pre::-webkit-scrollbar-track,
+.comment-compose-box .ProseMirror pre::-webkit-scrollbar-track,
+.prose-editor .ProseMirror pre::-webkit-scrollbar-track {
+    background: #141414;
+    border-radius: 3px;
+}
+.comment-card-body pre::-webkit-scrollbar-thumb,
+.comment-compose-box .ProseMirror pre::-webkit-scrollbar-thumb,
+.prose-editor .ProseMirror pre::-webkit-scrollbar-thumb {
+    background: #333333;
+    border-radius: 3px;
+}
+.comment-card-body pre::-webkit-scrollbar-thumb:hover,
+.comment-compose-box .ProseMirror pre::-webkit-scrollbar-thumb:hover,
+.prose-editor .ProseMirror pre::-webkit-scrollbar-thumb:hover {
+    background: #555555;
+}
 
+/* Reset code element inside pre */
 .comment-card-body pre code,
-.comment-compose-box .ProseMirror pre code {
+.comment-compose-box .ProseMirror pre code,
+.prose-editor .ProseMirror pre code {
     background: transparent !important;
     border: none !important;
     padding: 0 !important;
@@ -426,12 +461,7 @@
     font-size: inherit !important;
 }
 
-.comment-card-body code:not(pre code),
-.ProseMirror p code {
-    word-break: break-all !important;
-    overflow-wrap: anywhere !important;
-}
-
+/* Inline code snippet */
 .comment-card-body p code,
 .comment-card-body li code,
 .comment-compose-box .ProseMirror p code {
@@ -440,8 +470,10 @@
     border: 1px solid rgba(255, 255, 255, 0.15) !important;
     padding: 2px 5px !important;
     border-radius: 3px !important;
-    font-family: monospace !important;
+    font-family: 'Courier New', Monaco, Consolas, monospace !important;
     font-size: 0.88em !important;
+    word-break: break-all !important;
+    overflow-wrap: anywhere !important;
 }
 
 /* ==========================================================================
