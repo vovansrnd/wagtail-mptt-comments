@@ -1,21 +1,22 @@
 /* ==========================================================================
-   WAGTAIL MPTT COMMENTS — ПОЛНЫЙ ФАЙЛ СТИЛЕЙ (front-end)
+   WAGTAIL MPTT COMMENTS — Core Styles
+   Uses host site variables (--surface, --text, --accent) with built-in fallbacks
    ========================================================================== */
 
 :root {
-    --mptt-accent: #007d7e;
-    --mptt-accent-hover: #26b5a9;
-    --mptt-bg: #242424;
-    --mptt-card-bg: #1e1e1e;
-    --mptt-card-head: #2a2a2a;
-    --mptt-text: #eeeeee;
-    --mptt-muted: #888888;
-    --mptt-border: #333333;
-    --mptt-input-bg: #2a2a2a;
-    --mptt-radius: 6px;
+    --mptt-accent: var(--accent, #007d7e);
+    --mptt-accent-hover: var(--accent-hover, #26b5a9);
+    --mptt-bg: var(--surface-2, #242424);
+    --mptt-card-bg: var(--surface, #1e1e1e);
+    --mptt-card-head: var(--surface-2, #2a2a2a);
+    --mptt-text: var(--text, #eeeeee);
+    --mptt-muted: var(--muted, #888888);
+    --mptt-border: var(--border, #333333);
+    --mptt-input-bg: var(--surface, #2a2a2a);
+    --mptt-radius: var(--radius, 6px);
 }
 
-/* 1. Секция комментариев */
+/* 1. Comments wrapper & title */
 .comments-section-wrapper {
     margin-top: 2.5rem;
     color: var(--mptt-text);
@@ -31,6 +32,7 @@
     gap: 0.5rem;
     border-bottom: 1px solid var(--mptt-border);
     padding-bottom: 0.5rem;
+    color: var(--mptt-text); /* Ensures title adopts theme text color */
 }
 
 /* 2. Дерево комментариев MPTT */
@@ -175,15 +177,16 @@
 .comment-compose-box input[type="number"] {
     width: 100%;
     padding: 8px 12px !important;
-    border: 1px solid #3a3a3a !important;
+    border: 1px solid var(--mptt-border) !important;
     border-radius: 4px !important;
     background: var(--mptt-input-bg) !important;
-    color: #eeeeee !important;
+    color: var(--mptt-text) !important;
     box-sizing: border-box !important;
     font-family: inherit;
     font-size: 0.9rem;
     outline: none;
 }
+
 .comment-compose-box input:focus {
     border-color: var(--mptt-accent) !important;
 }
@@ -289,9 +292,9 @@
 }
 .comment-submit-button:hover { background: var(--mptt-accent-hover); }
 
-/* 4. Стилизация django-prose-editor */
+/* 4. Prose editor container in compose box */
 .comment-compose-box .prose-editor {
-    border: 1px solid #3a3a3a !important;
+    border: 1px solid var(--mptt-border) !important;
     border-radius: 4px !important;
     overflow: hidden !important;
     background: var(--mptt-card-bg) !important;
@@ -306,6 +309,12 @@
     gap: 2px;
 }
 
+.comment-compose-box .prose-menubar__selected {
+    border-right: 1px solid var(--mptt-border) !important;
+    padding-right: 4px !important;
+    margin-right: 4px !important;
+}
+
 .comment-compose-box .prose-menubar__dropdown,
 .comment-compose-box .prose-menubar__selected,
 .comment-compose-box .prose-menubar__dropdown button {
@@ -313,12 +322,6 @@
     outline: none !important;
     box-shadow: none !important;
     background: transparent !important;
-}
-
-.comment-compose-box .prose-menubar__selected {
-    border-right: 1px solid #3a3a3a !important;
-    padding-right: 4px !important;
-    margin-right: 4px !important;
 }
 
 .comment-compose-box .prose-editor .ProseMirror {
