@@ -387,6 +387,15 @@
    ВЫДЕЛЕНИЕ БЛОКА КОДА (<pre><code>)
    ========================================================= */
 
+   .comment-card-node,
+   .comment-card-body,
+   .comment-compose-box,
+   .prose-editor,
+   .ProseMirror {
+       min-width: 0 !important;
+       max-width: 100% !important;
+   }
+
 .comment-card-body pre,
 .comment-compose-box .ProseMirror pre,
 .prose-editor .ProseMirror pre {
@@ -400,9 +409,13 @@
     font-family: 'Courier New', Monaco, Consolas, monospace !important;
     font-size: 0.88rem !important;
     line-height: 1.5 !important;
+
+    max-width: 100% !important;
+    box-sizing: border-box !important;
     overflow-x: auto !important;
     white-space: pre !important;
 }
+
 
 .comment-card-body pre code,
 .comment-compose-box .ProseMirror pre code {
@@ -411,6 +424,12 @@
     padding: 0 !important;
     color: inherit !important;
     font-size: inherit !important;
+}
+
+.comment-card-body code:not(pre code),
+.ProseMirror p code {
+    word-break: break-all !important;
+    overflow-wrap: anywhere !important;
 }
 
 .comment-card-body p code,
