@@ -258,7 +258,7 @@ class Comment(MPTTModel):
                         subject=msg_subject,
                         message=msg_body,
                         from_email=settings.DEFAULT_FROM_EMAIL,
-                        recipient_list=[settings.DEFAULT_FROM_EMAIL],
+                        recipient_list=[getattr(settings, "COMMENTS_NOTIFY_EMAIL", settings.DEFAULT_FROM_EMAIL)],
                         fail_silently=True,
                     )
                 except Exception as e:
