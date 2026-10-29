@@ -1,0 +1,350 @@
+/* ==========================================================================
+   WAGTAIL MPTT COMMENTS — АДМИНКА
+
+   Два слоя стилей:
+   1) Нейтральная "мебель" (таблица, бордеры, фон панелей) — адаптируется
+      под активную тему Wagtail через currentColor/rgba.
+   2) Акцентные действия (approve/delete) — намеренно фиксированный цвет,
+      не зависящий от темы. Это осознанное решение, а не недосмотр:
+      действие "одобрить" всегда должно быть однозначно узнаваемым и
+      не путаться с системным "warning"-цветом Wagtail.
+   ========================================================================== */
+
+.comments-app {
+    --approve-color: #0e8a86;
+    --approve-color-hover: #26b5a9;
+    --delete-color: #b23b3b;
+    --delete-color-hover: #cf4d4d;
+}
+
+/* Шапка со счётчиками */
+.w-header__meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Табы вида / сортировки / статуса — текстовые, без рамок             */
+/* ------------------------------------------------------------------ */
+.comments-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid currentColor;
+    opacity-transition: none;
+}
+.comments-toolbar { border-bottom-color: rgba(128,128,128,0.25); }
+
+.comments-toolbar__group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.comments-toolbar__label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.55;
+    margin-right: 6px;
+}
+
+.comments-tab {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-decoration: none;
+    color: inherit;
+    opacity: 0.6;
+    background: transparent;
+    transition: background 0.15s ease, opacity 0.15s ease;
+}
+.comments-tab:hover {
+    opacity: 1;
+    background: rgba(128, 128, 128, 0.12);
+    text-decoration: none;
+}
+.comments-tab.is-active {
+    opacity: 1;
+    font-weight: 700;
+    background: rgba(14, 138, 134, 0.16);
+    color: var(--approve-color);
+}
+
+/* ------------------------------------------------------------------ */
+/* Кнопки действий — единая система, поверх Wagtail-разметки           */
+/* ------------------------------------------------------------------ */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 0.83rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1;
+    transition: background 0.15s ease, opacity 0.15s ease;
+}
+.btn-small { padding: 6px 12px; font-size: 0.8rem; }
+.btn-xs { padding: 4px 9px; font-size: 0.76rem; }
+
+/* Нейтральная кнопка — вписывается в любую тему */
+.btn-ghost {
+    background: rgba(128, 128, 128, 0.12);
+    color: inherit;
+}
+.btn-ghost:hover {
+    background: rgba(128, 128, 128, 0.22);
+    color: inherit;
+    text-decoration: none;
+}
+
+/* Иконка без фона, подсветка только на ховере — для строк таблицы */
+.btn-icon {
+    background: transparent;
+    color: inherit;
+    opacity: 0.7;
+    padding: 5px 8px;
+}
+.btn-icon:hover {
+    opacity: 1;
+    background: rgba(128, 128, 128, 0.15);
+    text-decoration: none;
+}
+
+/* Одобрить — фиксированный акцент, узнаваемый в любой теме */
+.btn-approve {
+    background: var(--approve-color);
+    color: #ffffff;
+}
+.btn-approve:hover {
+    background: var(--approve-color-hover);
+    color: #ffffff;
+    text-decoration: none;
+}
+
+/* Удалить — приглушённый, не "кричащий" красный */
+.btn-delete {
+    background: rgba(178, 59, 59, 0.14);
+    color: var(--delete-color);
+}
+.btn-delete:hover {
+    background: var(--delete-color);
+    color: #ffffff;
+    text-decoration: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Массовые действия                                                   */
+/* ------------------------------------------------------------------ */
+.comments-bulk-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Аватар                                                               */
+/* ------------------------------------------------------------------ */
+.comment-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.comment-avatar--fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(128, 128, 128, 0.25);
+    color: inherit;
+    font-weight: 700;
+    font-size: 0.8rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Вид "Дерево"                                                         */
+/* ------------------------------------------------------------------ */
+.comment-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.comment-node {
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    border-radius: 8px;
+    padding: 10px 14px;
+}
+.comment-node--pending {
+    border-color: rgba(178, 59, 59, 0.4);
+    border-style: dashed;
+}
+
+.comment-node__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.comment-node__date {
+    opacity: 0.6;
+    font-size: 0.85rem;
+}
+
+.comment-node__actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.comment-node__content {
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: rgba(128, 128, 128, 0.08);
+    font-size: 0.9rem;
+    word-break: break-word;
+}
+
+.comment-node__children {
+    margin-top: 10px;
+    padding-left: 16px;
+    border-left: 2px dashed rgba(128, 128, 128, 0.25);
+}
+
+/* ------------------------------------------------------------------ */
+/* Вид "Список" (таблица)                                               */
+/* ------------------------------------------------------------------ */
+.comments-author-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.comments-author-cell__email {
+    font-size: 0.78rem;
+    opacity: 0.6;
+}
+
+.comments-filter-icons {
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+    font-size: 0.85rem;
+}
+.comments-filter-icons a {
+    text-decoration: none;
+    opacity: 0.65;
+}
+.comments-filter-icons a:hover {
+    opacity: 1;
+}
+
+/* Пагинация */
+.comments-pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0;
+    opacity: 0.85;
+}
+
+/* Форма редактирования сниппета Comment (edit.html) */
+.edit-comment-container {
+    max-width: 800px;
+}
+.parent-selector {
+    width: 100%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Пустое состояние (No comments to display)                          */
+/* ------------------------------------------------------------------ */
+.comments-app .help-block.help-info {
+    background-color: var(--w-color-surface-field, #222) !important;
+    border: 1px dashed var(--w-color-border-furniture, #444) !important;
+    color: var(--w-color-text-meta, #888) !important;
+    text-align: center;
+    padding: 2.5rem 1.5rem;
+    border-radius: 8px;
+    margin-top: 1rem;
+}
+
+/* =========================================================
+   СТИЛИ ШАПКИ АДМИНКИ КОММЕНТАРИЕВ
+   ========================================================= */
+
+.comments-app header.w-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: wrap !important;
+    gap: 1rem !important;
+    padding: 1.25rem 1.5rem !important;
+    border-bottom: 1px solid var(--w-color-border-furniture, #3a3a3a) !important;
+    background: transparent !important;
+}
+
+.comments-app .w-header__title {
+    margin: 0 !important;
+    font-size: 1.6rem !important;
+    font-weight: 700 !important;
+    color: var(--w-color-text-context, #fff) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.75rem !important;
+}
+
+.comments-app .w-header__meta {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.6rem !important;
+}
+
+/* Красивые закругленные пилюли-счетчики */
+.comments-app .w-header__meta .status-tag {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    padding: 4px 12px !important;
+    border-radius: 20px !important;
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+}
+
+/* Бейдж: Всего комментариев */
+.comments-app .status-tag--primary {
+    background: rgba(38, 181, 169, 0.15) !important;
+    color: #26b5a9 !important;
+    border: 1px solid rgba(38, 181, 169, 0.3) !important;
+}
+
+/* Бейдж: На модерации (желто-янтарный, заметный) */
+.comments-app .status-tag--warning {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: #fbbf24 !important;
+    border: 1px solid rgba(245, 158, 11, 0.35) !important;
+    animation: pulseSlow 2s infinite ease-in-out;
+}
+
+@keyframes pulseSlow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.75; }
+}

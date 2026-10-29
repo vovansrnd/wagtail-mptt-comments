@@ -1,0 +1,195 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-03-01 12:00+0000\n"
+"PO-Revision-Date: 2024-03-01 12:00+0000\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: ru <LL@li.org>\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Your comment has been published successfully."
+msgstr "Ваш комментарий успешно опубликован."
+
+msgid "Thank you! Your comment has been sent for moderation."
+msgstr "Спасибо! Ваш комментарий отправлен на модерацию."
+
+msgid "Please check the form for errors."
+msgstr "Пожалуйста, проверьте правильность заполнения формы."
+
+msgid "No items selected."
+msgstr "Не выбраны элементы."
+
+#, python-format
+msgid "Approved %(count)s comments."
+msgstr "Одобрено %(count)s комментариев."
+
+#, python-format
+msgid "Deleted %(count)s comments."
+msgstr "Удалено %(count)s комментариев."
+
+msgid "Invalid action."
+msgstr "Неверное действие."
+
+msgid "Comments"
+msgstr "Комментарии"
+
+msgid "Total:"
+msgstr "Всего:"
+
+msgid "Pending moderation:"
+msgstr "На модерации:"
+
+msgid "View"
+msgstr "Вид"
+
+msgid "List"
+msgstr "Список"
+
+msgid "Tree"
+msgstr "Дерево"
+
+msgid "Sort by"
+msgstr "Сортировка"
+
+msgid "Date"
+msgstr "По дате"
+
+msgid "Author"
+msgstr "По автору"
+
+msgid "Status"
+msgstr "Статус"
+
+msgid "All"
+msgstr "Все"
+
+msgid "Pending moderation"
+msgstr "На модерации"
+
+msgid "Clear page filter"
+msgstr "Сбросить фильтр по странице"
+
+msgid "Select all"
+msgstr "Выбрать всё"
+
+msgid "Approve selected"
+msgstr "Одобрить выбранные"
+
+msgid "Delete selected"
+msgstr "Удалить выбранные"
+
+msgid "Approved"
+msgstr "Одобрено"
+
+msgid "Moderation"
+msgstr "Модерация"
+
+msgid "Approve"
+msgstr "Одобрить"
+
+msgid "Open on site"
+msgstr "Открыть на сайте"
+
+msgid "Edit"
+msgstr "Редактировать"
+
+msgid "Delete"
+msgstr "Удалить"
+
+msgid "No comments to display."
+msgstr "Нет комментариев для отображения."
+
+msgid "Comment"
+msgstr "Комментарий"
+
+msgid "Page"
+msgstr "Страница"
+
+msgid "Actions"
+msgstr "Действия"
+
+msgid "Only this page (list)"
+msgstr "Только эта страница (список)"
+
+msgid "Only this page (tree)"
+msgstr "Только эта страница (дерево)"
+
+msgid "Previous"
+msgstr "Назад"
+
+#, python-format
+msgid "Page %(number)s of %(num_pages)s"
+msgstr "Страница %(number)s из %(num_pages)s"
+
+msgid "Next"
+msgstr "Вперёд"
+
+msgid "Author's response:"
+msgstr "Ответ автора:"
+
+msgid "Quote"
+msgstr "С цитированием"
+
+msgid "Reply"
+msgstr "Ответить"
+
+msgid "No comments yet. Be the first!"
+msgstr "Пока нет комментариев. Будьте первым!"
+
+msgid "Leave a comment"
+msgstr "Оставить комментарий"
+
+msgid "You are logged in as:"
+msgstr "Вы вошли как:"
+
+msgid "Notify me of replies via email"
+msgstr "Уведомлять об ответах на почту"
+
+msgid "Submit comment"
+msgstr "Отправить комментарий"
+
+msgid "Please select comments first."
+msgstr "Сначала выберите комментарии."
+
+msgid "An error occurred."
+msgstr "Произошла ошибка."
+
+msgid "Network error while performing the action."
+msgstr "Сетевая ошибка при выполнении действия."
+
+msgid "Are you sure you want to delete this comment?"
+msgstr "Вы уверены, что хотите удалить этот комментарий?"
+
+msgid "Are you sure you want to delete selected comments?"
+msgstr "Вы уверены, что хотите удалить выбранные комментарии?"
+
+msgid "Your name *"
+msgstr "Ваше имя *"
+
+msgid "Email (private) *"
+msgstr "Email (не публикуется) *"
+
+msgid "Answer"
+msgstr "Ответ"
+
+msgid "Your name"
+msgstr "Ваше имя"
+
+msgid "Your Email"
+msgstr "Ваш Email"
+
+msgid "Form submitted too quickly."
+msgstr "Вы заполнили форму подозрительно быстро. Вы робот?"
+
+msgid "Incorrect captcha answer."
+msgstr "Неверный ответ на проверочный вопрос."
+
+msgid "Comment is too short."
+msgstr "Комментарий слишком короткий."
+
+msgid "Spam detected."
+msgstr "Сработал спам-детектор."
