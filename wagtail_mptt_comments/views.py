@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import logging
 
 from django.conf import settings
@@ -23,11 +24,61 @@ _DRAFT_MAX_LEN = 20_000
 
 
 def _client_ip(request):
-    if getattr(settings, "COMMENTS_TRUST_PROXY_HEADERS", False):
-        xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
-        if xff:
-            return xff.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR", "unknown")
+    """Return the client IP without trusting arbitrary X-Forwarded-For input.
+
+    Proxy headers are considered only when REMOTE_ADDR belongs to an explicitly
+    configured trusted proxy CIDR. Walk the chain from right to left and skip
+    trusted proxies; the first untrusted address is the client candidate.
+    Hosts must configure the proxy CIDRs only after verifying that their proxy
+    overwrites or correctly appends X-Forwarded-For.
+    """
+    remote_raw = (request.META.get("REMOTE_ADDR") or "").strip()
+    try:
+        remote_ip = ipaddress.ip_address(remote_raw)
+    except ValueError:
+        return "unknown"
+
+    if not getattr(settings, "COMMENTS_TRUST_PROXY_HEADERS", False):
+        return str(remote_ip)
+
+    raw_networks = getattr(settings, "COMMENTS_TRUSTED_PROXY_IPS", ()) or ()
+    if isinstance(raw_networks, str):
+        raw_networks = [part.strip() for part in raw_networks.split(",") if part.strip()]
+
+    trusted_networks = []
+    for value in raw_networks:
+        try:
+            trusted_networks.append(ipaddress.ip_network(str(value), strict=False))
+        except ValueError:
+            logger.warning("Ignoring invalid COMMENTS_TRUSTED_PROXY_IPS entry: %r", value)
+
+    def is_trusted(address):
+        return any(
+            address.version == network.version and address in network
+            for network in trusted_networks
+        )
+
+    # An empty allowlist or an untrusted direct peer means XFF is ignored.
+    if not trusted_networks or not is_trusted(remote_ip):
+        return str(remote_ip)
+
+    forwarded = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
+    if not forwarded:
+        return str(remote_ip)
+
+    try:
+        chain = [ipaddress.ip_address(part.strip()) for part in forwarded.split(",")]
+    except ValueError:
+        # A malformed chain is not partially trusted.
+        return str(remote_ip)
+
+    chain.append(remote_ip)
+    for address in reversed(chain):
+        if not is_trusted(address):
+            return str(address)
+
+    # A chain containing only trusted proxies is not enough to identify a client.
+    return str(remote_ip)
 
 
 def _rate_limited(request, bucket, limit, window):

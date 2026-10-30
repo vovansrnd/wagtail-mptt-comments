@@ -115,7 +115,8 @@ All settings are optional. Current defaults in the package source are:
 | `COMMENTS_MAX_LENGTH` | `20000` | Maximum comment text length. |
 | `COMMENTS_CAPTCHA_MAX_AGE` | `7200` seconds | Maximum age of the signed math-captcha token. |
 | `COMMENTS_FORM_TOKEN_MAX_AGE` | `7200` seconds | Maximum age of the signed page-bound form token. |
-| `COMMENTS_TRUST_PROXY_HEADERS` | `False` | Whether client IP may be read from proxy headers. Enable only behind a trusted proxy that overwrites those headers. |
+| `COMMENTS_TRUST_PROXY_HEADERS` | `False` | Allow reading a forwarded client-IP chain, but only when `REMOTE_ADDR` matches a trusted proxy network. |
+| `COMMENTS_TRUSTED_PROXY_IPS` | `()` | Comma-separated IP addresses/CIDRs of trusted reverse proxies. Never use `0.0.0.0/0` or `::/0`. |
 | `SITE_NAME` | project-dependent | Site name used in messages where needed. |
 | `DEFAULT_FROM_EMAIL` | Django default | Sender address for notifications. |
 
@@ -126,11 +127,14 @@ COMMENTS_MODERATION = True
 COMMENTS_NOTIFY_ADMINS = True
 COMMENTS_MODERATOR_GROUPS = ["Moderators"]
 COMMENTS_MAX_LENGTH = 20_000
-COMMENTS_TRUST_PROXY_HEADERS = False
+COMMENTS_TRUST_PROXY_HEADERS = False  # keep false until proxy behavior is verified
+COMMENTS_TRUSTED_PROXY_IPS = ()  # e.g. ("10.0.0.10/32",) after confirmation
 DEFAULT_FROM_EMAIL = "noreply@example.com"
 ```
 
 Set up Django email delivery if notifications are enabled. Review the content and privacy requirements for storing commenter names, email addresses, IP-derived rate-limit data, and notification preferences.
+
+**Reverse proxy / rate limiting:** keep `COMMENTS_TRUST_PROXY_HEADERS=False` unless the hosting provider confirms the proxy address range and confirms that `X-Forwarded-For` is overwritten or appended safely. Then set `COMMENTS_TRUST_PROXY_HEADERS=True` and list only the provider proxy IPs/CIDRs in `COMMENTS_TRUSTED_PROXY_IPS`. The package ignores forwarded headers from untrusted peers and walks the chain from right to left. Do not trust arbitrary client-supplied XFF headers.
 
 ## Styling
 
