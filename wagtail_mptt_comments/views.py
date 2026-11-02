@@ -102,6 +102,19 @@ def _rate_limited(request, bucket, limit, window):
     return False
 
 
+def _page_return_url(request, page):
+    """URL возврата на страницу после POST.
+
+    page.get_url() возвращает None, если страница не маршрутизируема
+    (NoReverseMatch на wagtail_serve, несогласованный кэш root paths).
+    redirect() без ведущего "/" трактует строку как имя view и падает
+    500-й. Даём безопасный fallback и корректный разделитель запроса.
+    """
+    base = page.get_url(request) or page.get_url() or "/"
+    sep = "&" if "?" in base else "?"
+    return base + sep
+
+
 @require_POST
 @csrf_protect
 def add_comment_to_page(request, page_id):
@@ -120,7 +133,7 @@ def add_comment_to_page(request, page_id):
         if request.headers.get("x-requested-with") == "XMLHttpRequest":
             return JsonResponse({"success": False, "error": too_fast}, status=429)
         messages.error(request, too_fast)
-        return redirect(page.get_url(request) + "?has_errors=1#comment-form-anchor")
+        return redirect(_page_return_url(request, page) + "has_errors=1#comment-form-anchor")
 
     is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
     form = PublicCommentForm(request.POST, request=request, page=page)
@@ -148,9 +161,9 @@ def add_comment_to_page(request, page_id):
             return JsonResponse({"success": True, "message": msg, "is_approved": comment.is_approved})
 
         messages.success(request, msg)
-        base_url = page.get_url(request)
+        base_url = _page_return_url(request, page)
         anchor = f"#comment-{comment.id}" if comment.is_approved else "#comment-form-anchor"
-        return redirect(f"{base_url}?success=1{anchor}")
+        return redirect(f"{base_url}success=1{anchor}")
 
     # ========================================================
     # ЕСЛИ ФОРМА НЕВАЛИДНА (ОШИБКА КАПЧИ, КОРОТКИЙ ТЕКСТ И Т.Д.)
@@ -173,7 +186,7 @@ def add_comment_to_page(request, page_id):
     messages.error(request, error_msg)
 
     # 3. Возвращаем пользователя ровно к форме
-    return redirect(page.get_url(request) + "?has_errors=1#comment-form-anchor")
+    return redirect(_page_return_url(request, page) + "has_errors=1#comment-form-anchor")
 
 
 
