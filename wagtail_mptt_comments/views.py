@@ -8,7 +8,7 @@ from django.contrib import messages
 from django.core.cache import cache
 from django.db import transaction
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_POST
@@ -16,6 +16,7 @@ from wagtail.models import Page, Site
 
 from .forms import PublicCommentForm
 from .models import Comment
+from django.template.loader import select_template
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,30 @@ def add_comment_to_page(request, page_id):
 
     # 3. Возвращаем пользователя ровно к форме
     return redirect(page.get_url(request) + "?has_errors=1#comment-form-anchor")
+
+
+
+
+def comment_form_fragment(request, page_id):
+    """HTML-фрагмент формы комментария для ленивой загрузки.
+
+    Статьи кэшируются целиком, поэтому персональное состояние (CSRF,
+    form_token, капча, восстановление черновика из сессии) отдаётся
+    отдельным приватным ответом. Заголовки запрещают любое общее кэширование.
+    """
+    page = get_object_or_404(Page, pk=page_id, live=True)
+    form = PublicCommentForm(page=page, request=request)
+    theme = getattr(request, "theme", "nova")
+    # render() со списком = select_template: сначала тема сайта, потом общий фрагмент
+    response = render(
+        request,
+        [f"blog/{theme}/components/comment_form_fragment.html",
+         "wagtail_mptt_comments/comment_form_fragment.html"],
+        {"form": form, "page": page},
+    )
+    response["Cache-Control"] = "private, no-store, max-age=0"
+    response["X-Robots-Tag"] = "noindex"
+    return response
 
 
 @require_POST
