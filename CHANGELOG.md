@@ -1,3 +1,14 @@
+## [0.2.8] — 2026-11-05 — prepared, not yet published
+
+- Synced the published package with the repository code that production now
+  requires: the `comments/form/<page_id>/` endpoint (`comment_form_fragment`)
+  for lazy-loaded comment forms and the safe redirect fix after comment POST
+  (`page.get_url()` returning None no longer 500s). PyPI's 0.2.7 predates
+  both; discovered during the Wagtail 8.1 production rollout when the newly
+  deployed lazy comment templates started requesting the missing endpoint.
+
+## [0.2.7] — earlier release
+
 # Changelog — wagtail-mptt-comments
 
 All notable changes for this package are documented here. Version numbers below are **prepared release candidates** in this audit bundle; they are not a claim that those versions have already been uploaded to PyPI.
