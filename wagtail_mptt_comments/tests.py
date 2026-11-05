@@ -103,22 +103,35 @@ class CommentEndpointAccessTests(TestCase):
         other_root.add_child(instance=cls.other_page)
 
     def _form_token(self, page_id):
-        """GET формы -> значение hidden input form_token (подписанный токен).
-
-        Возвращает (token, response): токен и сам ответ (для проверки 200).
-        Токен жив 24 часа, но clean_form_token требует age >= 4 секунд
-        (защита «отправлено слишком быстро») — между GET и POST в тестах
-        выдерживать паузу не меньше 4.5 с.
-        """
+        """GET формы -> значение hidden input form_token (подписанный токен)
+        и сам ответ (для проверки 200)."""
         import re
-        import time
 
         response = self.client.get(f"/comments/form/{page_id}/")
         m = re.search(r'name="form_token"[^>]*value="([^"]+)"', response.content.decode())
-        token = m.group(1) if m else None
-        # Анти-too-fast: clean_form_token отклоняет age < 4 c
-        time.sleep(4.5)
-        return token, response
+        return (m.group(1) if m else None), response
+
+    def _backdated_form_token(self, page_id, age_seconds=10):
+        """Управляемое время вместо физического sleep.
+
+        clean_form_token отклоняет токены с age < 4 c («отправлено слишком
+        быстро»). Вместо ожидания подписываем валидный токен с issued_at в
+        прошлом — та же соль и структура payload, что у PublicCommentForm
+        (forms.py, salt="wagtail_mptt_comments.form").
+        """
+        import secrets
+        import time
+
+        from django.core import signing
+
+        return signing.dumps(
+            {
+                "page_id": page_id,
+                "nonce": secrets.token_urlsafe(18),
+                "issued_at": time.time() - age_seconds,
+            },
+            salt="wagtail_mptt_comments.form",
+        )
 
     # --- GET /comments/form/<page_id>/ ---
 
@@ -148,8 +161,7 @@ class CommentEndpointAccessTests(TestCase):
     def test_add_comment_on_public_page_still_works(self):
         """Обычная отправка комментария на публичной странице текущего сайта."""
         self.client.force_login(self.user)
-        token, _resp = self._form_token(self.public_page.pk)
-        self.assertIsNotNone(token, "форма публичной страницы должна содержать form_token")
+        token = self._backdated_form_token(self.public_page.pk)
         response = self.client.post(
             f"/comments/add/{self.public_page.pk}/",
             {"content": "Тест комментария", "parent": "", "form_token": token},
@@ -184,7 +196,7 @@ class CommentEndpointAccessTests(TestCase):
     def test_add_comment_replay_same_form_token_rejected(self):
         """Повторная отправка с тем же form_token отклоняется (session nonces)."""
         self.client.force_login(self.user)
-        token, _resp = self._form_token(self.public_page.pk)
+        token = self._backdated_form_token(self.public_page.pk)
         payload = {"content": "первый", "parent": "", "form_token": token}
         first = self.client.post(f"/comments/add/{self.public_page.pk}/", payload)
         self.assertEqual(first.status_code, 302)
