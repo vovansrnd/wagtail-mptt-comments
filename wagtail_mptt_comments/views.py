@@ -197,8 +197,20 @@ def comment_form_fragment(request, page_id):
     Статьи кэшируются целиком, поэтому персональное состояние (CSRF,
     form_token, капча, восстановление черновика из сессии) отдаётся
     отдельным приватным ответом. Заголовки запрещают любое общее кэширование.
+
+    Доступ: только live, public (без view restrictions) и принадлежащая
+    текущему Wagtail Site страница — зеркало add_comment_to_page. Иначе
+    аноним получал бы форму (и раскрытие заголовка страницы в контексте
+    шаблона) для закрытой страницы или страницы другого сайта
+    (координатор, 2026-11-05).
     """
-    page = get_object_or_404(Page, pk=page_id, live=True)
+    site = Site.find_for_request(request)
+    if site is None:
+        from django.http import Http404
+        raise Http404("No Wagtail Site is configured for this host")
+    page = get_object_or_404(
+        Page.objects.live().public().in_site(site), id=page_id
+    ).specific
     form = PublicCommentForm(page=page, request=request)
     theme = getattr(request, "theme", "nova")
     # render() со списком = select_template: сначала тема сайта, потом общий фрагмент
