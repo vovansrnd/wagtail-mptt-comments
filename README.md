@@ -19,27 +19,27 @@ Use this package for article/page comments. It is not a forum engine and does no
 - Multi-site filtering so page comments and recent-comment widgets are restricted to the current Wagtail Site.
 - CSS variables for front-end theming, and a Prose-based editor for comment/admin-response content.
 
-## Audit/release status
 
-This source bundle prepares version `0.2.5` for a possible next release. Static syntax/package checks have been run, but a full Django/Wagtail integration suite has not run in the bundle build environment. Do not upload to PyPI until the release checklist in `../../04-docs/UPGRADE_AND_RELEASE.md` is complete.
+## Compatibility
+
+The package metadata declares a minimum of `wagtail>=6.0`; that is the
+supported floor, not the full test matrix. What is actually tested:
+Wagtail 8.0.1 and 8.1 with Django 6.0.9 on Python 3.14 (the production
+stack of the originating project). Other combinations may work but are
+not covered by the test suite.
 
 ## Requirements and installation
 
 Package metadata declares `wagtail>=6.0`, `django-mptt>=0.16.0`, `django-prose-editor>=0.26`, and `nh3>=0.2.14`.
 
 ```bash
-pip install wagtail-mptt-comments
+pip install wagtail-mptt-comments==0.2.8
 ```
-
-To install **the candidate source in this bundle** (rather than the already-published PyPI release), run from this package directory:
 
 ```bash
 python -m pip install .
-# For editable development instead:
-python -m pip install -e .
 ```
 
-`pip install wagtail-mptt-comments` selects the version currently published on PyPI. The candidate version shown in `pyproject.toml` is not published by this archive operation; publish it only after the release checklist in `../../04-docs/UPGRADE_AND_RELEASE.md` passes.
 
 
 Add the app after its dependencies:

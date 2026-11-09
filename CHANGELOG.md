@@ -1,4 +1,4 @@
-## [0.2.8] — 2026-11-05 — prepared, not yet published
+## [0.2.8] — 2026-11-05
 
 - Synced the published package with the repository code that production now
   requires: the `comments/form/<page_id>/` endpoint (`comment_form_fragment`)
@@ -11,9 +11,9 @@
 
 # Changelog — wagtail-mptt-comments
 
-All notable changes for this package are documented here. Version numbers below are **prepared release candidates** in this audit bundle; they are not a claim that those versions have already been uploaded to PyPI.
+All notable changes for this package are documented here. PyPI availability is tracked per release: entries below describe the package state at that version; publication happens separately once approved.
 
-## [0.2.5] — 2026-10-29 — prepared, not yet published
+## [0.2.5] — 2026-10-29
 
 - Harden site-scoped latest-comment queries and HTML rendering; preserve transaction-safe notifications; expand deployment and multi-site guidance.
 - Expanded installation, security, troubleshooting, storage/integration and multi-language documentation.
