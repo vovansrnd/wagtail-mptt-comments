@@ -1,3 +1,23 @@
+## [0.2.9] — unreleased candidate
+
+- Restrict the latest-comments widget to approved comments on live, public pages
+  belonging to the current Wagtail Site. Cache a small display DTO instead of
+  serializing complete Comment/User objects.
+- Replace the cache get/set comment limiter with a database-backed conditional
+  counter. The unique bucket and atomic updates keep concurrent requests from
+  exceeding the configured limit across workers. Database errors fail closed
+  with HTTP 503 rather than silently disabling the limiter.
+- Keep replay-state writes out of form validation and perform them after the
+  comment row is saved inside the same transaction. A unique database HMAC
+  scoped to the browser's CSRF secret rejects concurrent replays while keeping
+  the same cached form token usable in distinct browsers.
+- Invalidate latest-comment cache after page publication, unpublishing, URL/site
+  changes, and page-visibility restriction changes; use a new cache namespace so
+  pre-upgrade Comment/User objects cannot be served from old cache entries.
+- Add a cleanup command for stale rate-limit buckets and expired replay nonces,
+  plus regression tests for visibility, CSRF setup, cache payloads, rate-window
+  expiry, cleanup batching, and concurrent PostgreSQL use.
+
 ## [0.2.8] — 2026-11-05
 
 - Synced the published package with the repository code that production now

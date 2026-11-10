@@ -1,6 +1,9 @@
+from django.conf import settings
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.db import DatabaseError
+from unittest.mock import patch
 
-from .models import Comment
+from .models import Comment, ConsumedCommentNonce
 from .views import _client_ip
 
 
@@ -119,6 +122,8 @@ class CommentEndpointAccessTests(TestCase):
         прошлом — та же соль и структура payload, что у PublicCommentForm
         (forms.py, salt="wagtail_mptt_comments.form").
         """
+        # Establish the per-browser CSRF secret used to scope replay nonces.
+        self.client.get(f"/comments/form/{page_id}/")
         import secrets
         import time
 
@@ -134,6 +139,33 @@ class CommentEndpointAccessTests(TestCase):
         )
 
     # --- GET /comments/form/<page_id>/ ---
+
+    def test_lazy_form_fragment_ensures_csrf_cookie(self):
+        response = self.client.get(f"/comments/form/{self.public_page.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(settings.CSRF_COOKIE_NAME, response.cookies)
+
+    @override_settings(COMMENTS_RATE_LIMIT=0)
+    def test_invalid_rate_limit_configuration_fails_closed_with_503(self):
+        self.client.force_login(self.user)
+        token = self._backdated_form_token(self.public_page.pk)
+        response = self.client.post(
+            f"/comments/add/{self.public_page.pk}/",
+            {"content": "Valid comment", "parent": "", "form_token": token},
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(Comment.objects.filter(page_id=self.public_page.pk, content="Valid comment").exists())
+
+    @patch("wagtail_mptt_comments.views._rate_limited", side_effect=DatabaseError("rate table unavailable"))
+    def test_rate_limit_storage_error_fails_closed_with_503(self, _mock_rate_limit):
+        self.client.force_login(self.user)
+        token = self._backdated_form_token(self.public_page.pk)
+        response = self.client.post(
+            f"/comments/add/{self.public_page.pk}/",
+            {"content": "Valid comment", "parent": "", "form_token": token},
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(Comment.objects.filter(page_id=self.public_page.pk, content="Valid comment").exists())
 
     def test_form_on_public_page_of_current_site_200(self):
         response = self.client.get(f"/comments/form/{self.public_page.pk}/")
@@ -192,6 +224,32 @@ class CommentEndpointAccessTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
         self.assertFalse(Comment.objects.filter(page_id=self.other_page.pk).exists())
+
+    def test_invalid_fields_do_not_consume_valid_form_token(self):
+        """A typo in another field must not force the visitor to reload the form."""
+        self.client.force_login(self.user)
+        token = self._backdated_form_token(self.public_page.pk)
+        invalid = self.client.post(
+            f"/comments/add/{self.public_page.pk}/",
+            {"content": "bad", "parent": "", "form_token": token},
+        )
+        self.assertEqual(invalid.status_code, 302)
+        self.assertIn("has_errors=1", invalid["Location"])
+        self.assertEqual(ConsumedCommentNonce.objects.count(), 0)
+
+        valid = self.client.post(
+            f"/comments/add/{self.public_page.pk}/",
+            {"content": "Исправленный комментарий", "parent": "", "form_token": token},
+        )
+        self.assertEqual(valid.status_code, 302)
+        self.assertNotIn("has_errors=1", valid["Location"])
+        self.assertTrue(
+            Comment.objects.filter(
+                page_id=self.public_page.pk,
+                content="Исправленный комментарий",
+            ).exists()
+        )
+        self.assertEqual(ConsumedCommentNonce.objects.count(), 1)
 
     def test_add_comment_replay_same_form_token_rejected(self):
         """Повторная отправка с тем же form_token отклоняется (session nonces)."""

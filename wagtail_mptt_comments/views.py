@@ -1,22 +1,25 @@
 import hashlib
+import hmac
 import ipaddress
 import logging
+from datetime import timedelta
 
+from django import forms
 from django.conf import settings
 from django.contrib.auth.decorators import permission_required
 from django.contrib import messages
-from django.core.cache import cache
-from django.db import transaction
-from django.http import JsonResponse
+from django.db import DatabaseError, transaction
+from django.db.models import F
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.utils.translation import gettext as _
-from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from wagtail.models import Page, Site
 
 from .forms import PublicCommentForm
-from .models import Comment
-from django.template.loader import select_template
+from .models import Comment, CommentRateLimitBucket
 
 logger = logging.getLogger(__name__)
 
@@ -82,24 +85,61 @@ def _client_ip(request):
     return str(remote_ip)
 
 
+def _consume_rate_bucket(key_hash, now, cutoff, limit):
+    _row, created = CommentRateLimitBucket.objects.get_or_create(
+        key_hash=key_hash,
+        defaults={"window_started_at": now, "count": 1},
+    )
+    if created:
+        return False
+
+    # Reset an expired window with a conditional UPDATE. If another request
+    # already reset it, this affects zero rows and we proceed to increment.
+    reset = CommentRateLimitBucket.objects.filter(
+        key_hash=key_hash,
+        window_started_at__lte=cutoff,
+    ).update(window_started_at=now, count=1)
+    if reset:
+        return False
+
+    incremented = CommentRateLimitBucket.objects.filter(
+        key_hash=key_hash,
+        count__lt=limit,
+    ).update(count=F("count") + 1)
+    return incremented == 0
+
+
 def _rate_limited(request, bucket, limit, window):
-    """Cache-based flood control; False means the request is allowed."""
+    """Atomically consume a DB-backed per-account or anonymous-IP slot.
+
+    Authenticated visitors are keyed by user ID; anonymous visitors are keyed
+    by the client IP resolved under the explicitly configured proxy policy.
+    A unique DB row plus a conditional UPDATE keeps counters correct across
+    processes and workers without depending on FileBasedCache atomicity.
+    Database failures propagate so the caller can fail closed with HTTP 503.
+    """
+    if limit < 1 or window < 1:
+        raise ValueError("limit and window must be positive integers")
+
     if request.user.is_authenticated:
-        ident = f"u_{request.user.pk}"
+        identity = f"user:{request.user.pk}"
     else:
-        ident = "ip_" + hashlib.md5(_client_ip(request).encode()).hexdigest()[:10]
-    key = f"comments_rl_{bucket}_{ident}"
-    current = cache.get(key, 0)
-    if current >= limit:
-        return True
-    if current == 0:
-        cache.set(key, 1, window)
-    else:
-        try:
-            cache.incr(key)
-        except Exception:
-            cache.set(key, current + 1, window)
-    return False
+        identity = f"ip:{_client_ip(request)}"
+    raw_key = f"{bucket}:{limit}:{window}:{identity}"
+    key_hash = hmac.new(
+        settings.SECRET_KEY.encode("utf-8"),
+        raw_key.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    now = timezone.now()
+    cutoff = now - timedelta(seconds=window)
+    try:
+        with transaction.atomic():
+            return _consume_rate_bucket(key_hash, now, cutoff, limit)
+    except DatabaseError:
+        logger.exception("Comment rate-limit storage is unavailable")
+        raise
 
 
 def _page_return_url(request, page):
@@ -128,42 +168,67 @@ def add_comment_to_page(request, page_id):
         Page.objects.live().public().in_site(site), id=page_id
     ).specific
 
-    if _rate_limited(request, "post", limit=10, window=300):
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+    try:
+        rate_limit = int(getattr(settings, "COMMENTS_RATE_LIMIT", 10))
+        rate_window = int(getattr(settings, "COMMENTS_RATE_WINDOW", 300))
+        limited = _rate_limited(request, "post", limit=rate_limit, window=rate_window)
+    except DatabaseError:
+        unavailable = _("Comment submission is temporarily unavailable. Please try again later.")
+        if is_ajax:
+            return JsonResponse({"success": False, "error": unavailable}, status=503)
+        return HttpResponse(unavailable, status=503)
+    except (TypeError, ValueError):
+        logger.exception("Invalid comment rate-limit configuration")
+        unavailable = _("Comment submission is temporarily unavailable. Please try again later.")
+        if is_ajax:
+            return JsonResponse({"success": False, "error": unavailable}, status=503)
+        return HttpResponse(unavailable, status=503)
+
+    if limited:
         too_fast = _("You are posting comments too quickly. Please wait a bit.")
-        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        if is_ajax:
             return JsonResponse({"success": False, "error": too_fast}, status=429)
         messages.error(request, too_fast)
         return redirect(_page_return_url(request, page) + "has_errors=1#comment-form-anchor")
 
-    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
     form = PublicCommentForm(request.POST, request=request, page=page)
 
     if form.is_valid():
-        comment = form.save(commit=False)
-        comment.page = page
+        try:
+            # Replay-state mutation and comment insertion are one transaction:
+            # a failed insert does not burn the user's valid form token.
+            with transaction.atomic():
+                comment = form.save(commit=False)
+                comment.page = page
 
-        if request.user.is_authenticated:
-            comment.user = request.user
-            comment.is_approved = True
+                if request.user.is_authenticated:
+                    comment.user = request.user
+                    comment.is_approved = True
+                else:
+                    needs_moderation = getattr(settings, "COMMENTS_MODERATION", True)
+                    comment.is_approved = not needs_moderation
+
+                comment.save()
+                # Record browser-scoped replay state only after the comment row
+                # has been saved; a replay rolls the new comment back.
+                form.consume_replay_nonces()
+        except forms.ValidationError as exc:
+            form.add_error(None, exc)
         else:
-            needs_moderation = getattr(settings, "COMMENTS_MODERATION", True)
-            comment.is_approved = not needs_moderation
+            # Очищаем временные данные и капчу при успехе
+            request.session.pop("comment_captcha_sum", None)
+            request.session.pop(f"invalid_comment_post_{page.pk}", None)
 
-        comment.save()
+            msg = _("Your comment has been published successfully.") if comment.is_approved else _("Thank you! Your comment has been sent for moderation.")
 
-        # Очищаем временные данные и капчу при успехе
-        request.session.pop("comment_captcha_sum", None)
-        request.session.pop(f"invalid_comment_post_{page.pk}", None)
+            if is_ajax:
+                return JsonResponse({"success": True, "message": msg, "is_approved": comment.is_approved})
 
-        msg = _("Your comment has been published successfully.") if comment.is_approved else _("Thank you! Your comment has been sent for moderation.")
-
-        if is_ajax:
-            return JsonResponse({"success": True, "message": msg, "is_approved": comment.is_approved})
-
-        messages.success(request, msg)
-        base_url = _page_return_url(request, page)
-        anchor = f"#comment-{comment.id}" if comment.is_approved else "#comment-form-anchor"
-        return redirect(f"{base_url}success=1{anchor}")
+            messages.success(request, msg)
+            base_url = _page_return_url(request, page)
+            anchor = f"#comment-{comment.id}" if comment.is_approved else "#comment-form-anchor"
+            return redirect(f"{base_url}success=1{anchor}")
 
     # ========================================================
     # ЕСЛИ ФОРМА НЕВАЛИДНА (ОШИБКА КАПЧИ, КОРОТКИЙ ТЕКСТ И Т.Д.)
@@ -191,6 +256,7 @@ def add_comment_to_page(request, page_id):
 
 
 
+@ensure_csrf_cookie
 def comment_form_fragment(request, page_id):
     """HTML-фрагмент формы комментария для ленивой загрузки.
 
