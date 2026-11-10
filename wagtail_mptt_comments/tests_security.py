@@ -80,7 +80,21 @@ class AtomicCommentRateLimitTests(TestCase):
 
 
 @skipUnless(connection.vendor == "postgresql", "Concurrent counter test requires PostgreSQL row/unique-index semantics")
-class ConcurrentCommentRateLimitTests(TransactionTestCase):
+class CascadeFlushMixin:
+    """Flush с CASCADE: легаси-таблица blog_comment (сирота относительно
+    sqlflush) ломает стандартный flush TransactionTestCase на postgres.
+    Копия FlushCascadeMixin ядра (blog/tests_replay_http.py)."""
+
+    def _fixture_teardown(self):
+        from django.core.management import call_command
+        call_command(
+            "flush", verbosity=0, interactive=False,
+            database=self._databases_names()[0],
+            reset_sequences=False, allow_cascade=True,
+        )
+
+
+class ConcurrentCommentRateLimitTests(CascadeFlushMixin, TransactionTestCase):
     reset_sequences = True
 
     def test_parallel_requests_cannot_exceed_remaining_slots(self):
@@ -141,7 +155,7 @@ class CommentNonceStorageTests(TestCase):
 
 
 @skipUnless(connection.vendor == "postgresql", "Concurrent nonce test requires PostgreSQL unique-index behavior")
-class ConcurrentCommentNonceTests(TransactionTestCase):
+class ConcurrentCommentNonceTests(CascadeFlushMixin, TransactionTestCase):
     reset_sequences = True
 
     def test_parallel_replay_has_exactly_one_winner_per_csrf_secret(self):
