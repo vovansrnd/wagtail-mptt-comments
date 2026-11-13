@@ -1,4 +1,8 @@
-## [0.2.9] — unreleased candidate
+## [0.2.9] — 2026-11-14
+
+- Add dependency constraint `django-js-asset<5`: django-js-asset 5.x renames the
+  import module and rejects import-map js lists, which breaks the media of
+  django-prose-editor 0.27.x admin forms on fresh installs.
 
 - Restrict the latest-comments widget to approved comments on live, public pages
   belonging to the current Wagtail Site. Cache a small display DTO instead of

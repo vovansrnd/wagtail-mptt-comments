@@ -23,6 +23,11 @@ dependencies = [
     "wagtail>=6.0",
     "django-mptt>=0.16.0",
     "django-prose-editor>=0.26",
+    # django-js-asset 5.x переименовал модуль (django_js_asset -> js_asset) и
+    # отвергает import-map js-списки: media django-prose-editor 0.27.x ломается
+    # на чистых установках (TypeError при рендере админ-форм комментариев).
+    # Ядро проекта пинит 4.2.0 — фиксируем совместимую границу в метаданных.
+    "django-js-asset<5",
     "nh3>=0.2.14",
 ]
 
