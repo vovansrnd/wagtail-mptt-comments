@@ -102,3 +102,8 @@ urlpatterns = [
 
 MIT. 源代码: [https://github.com/vovansrnd/wagtail-mptt-comments](https://github.com/vovansrnd/wagtail-mptt-comments).
 
+## 0.2.9 版本说明
+
+- 访客反垃圾功能：蜜罐、绑定页面的签名表单令牌、签名数学挑战、浏览器级重放检测（绑定到浏览器 CSRF 密钥的 HMAC）以及基于数据库的按 IP/账户原子速率限制器 (`COMMENTS_RATE_LIMIT`, `COMMENTS_RATE_WINDOW`)。
+- 请安排每日清理：`python manage.py cleanup_comment_security` 会删除过期的限流记录和过期的 nonce。
+- 最新评论小组件仅显示当前 Wagtail 站点已发布公开页面上的已批准评论。

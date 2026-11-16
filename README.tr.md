@@ -102,3 +102,8 @@ Akış çalışmıyorsa uygulama ayarlarını, geçişleri, URL sırasını, kul
 
 MIT. Kaynak kod: [https://github.com/vovansrnd/wagtail-mptt-comments](https://github.com/vovansrnd/wagtail-mptt-comments).
 
+## 0.2.9 Sürüm notları
+
+- Konuklar için spam önleme: honeypot, sayfaya bağlanmış imzalı form token'ı, imzalı matematik görevi, tarayıcıya özel replay algılama (tarayıcının CSRF gizli anahtarına bağlı HMAC) ve veritabanı destekli IP/hesap başına atomik hız sınırlayıcı (`COMMENTS_RATE_LIMIT`, `COMMENTS_RATE_WINDOW`).
+- Günlük temizliği planlayın: `python manage.py cleanup_comment_security`, eski hız sınırlayıcı kayıtlarını ve süresi geçmiş nonce'ları siler.
+- Son yorumlar widget'ı yalnızca geçerli Wagtail sitesinin yayında ve herkese açık sayfalarındaki onaylanmış yorumları gösterir.
