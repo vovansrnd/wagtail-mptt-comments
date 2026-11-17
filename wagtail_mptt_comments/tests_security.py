@@ -13,7 +13,7 @@ from django.utils import timezone
 from wagtail.models import Page, PageViewRestriction, Site
 
 from .models import Comment, CommentRateLimitBucket, ConsumedCommentNonce, _LATEST_COMMENTS_EPOCH_KEY
-from .templatetags.mptt_comment_tags import LatestCommentItem, get_latest_comments
+from .templatetags.mptt_comment_tags import get_latest_comments
 from .views import _rate_limited
 from .security import CommentNonceReplayError, consume_comment_nonces
 
@@ -305,13 +305,13 @@ class LatestCommentsWidgetVisibilityTests(TestCase):
             timeout=300,
         )
         result = get_latest_comments({"request": request}, count=10)
-        self.assertEqual([item.id for item in result], [self.public_comment.pk])
-        self.assertTrue(all(isinstance(item, LatestCommentItem) for item in result))
+        self.assertEqual([item.pk for item in result], [self.public_comment.pk])
+        self.assertTrue(all(isinstance(item, Comment) for item in result))
 
     def test_cached_widget_is_invalidated_when_page_becomes_restricted(self):
         request = RequestFactory().get("/", HTTP_HOST="testserver")
         before = get_latest_comments({"request": request}, count=10)
-        self.assertEqual([item.id for item in before], [self.public_comment.pk])
+        self.assertEqual([item.pk for item in before], [self.public_comment.pk])
 
         with self.captureOnCommitCallbacks(execute=True):
             PageViewRestriction.objects.create(
@@ -322,18 +322,23 @@ class LatestCommentsWidgetVisibilityTests(TestCase):
         after = get_latest_comments({"request": request}, count=10)
         self.assertEqual(after, [])
 
-    def test_cache_contains_display_dto_not_comment_or_user_models(self):
+    def test_cache_contains_ids_not_comment_or_user_models(self):
+        """Кеш хранит ТОЛЬКО целочисленные ID: Comment/User/Page не попадают
+        в кеш (ID разрешаются обратно в Comment на каждом вызове)."""
         request = RequestFactory().get("/", HTTP_HOST="testserver")
         result = get_latest_comments({"request": request}, count=10)
         self.assertEqual(len(result), 1)
         item = result[0]
-        self.assertIsInstance(item, LatestCommentItem)
-        self.assertFalse(hasattr(item, "user"))
+        self.assertIsInstance(item, Comment)
         self.assertFalse(hasattr(item, "password"))
-        self.assertEqual(item.display_author_name, "latest-writer")
+        self.assertEqual(item.display_author_name(), "latest-writer")
 
         site = Site.find_for_request(request)
-        cache_key = f"latest_comments_v2_site_{site.pk}_10_1"
+        epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY, 0)
+        cache_key = f"latest_comment_ids_site_{site.pk}_10_{epoch}"
         cached = cache.get(cache_key)
-        self.assertEqual(cached, result)
-        self.assertFalse(any(hasattr(value, "password") for value in cached))
+        self.assertTrue(cached)
+        self.assertEqual([c.pk for c in cached], [result[0].pk])
+        self.assertTrue(all(isinstance(value, int) for value in cached))
+        payload = repr(cached)
+        self.assertNotIn("latest-writer", payload)

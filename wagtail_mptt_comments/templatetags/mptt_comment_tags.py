@@ -58,17 +58,6 @@ def clean_comment_html(value, variant="base"):
     return mark_safe(cleaned_html)
 
 
-@dataclass(frozen=True)
-class LatestCommentItem:
-    """Small cache DTO; deliberately contains no Django User instance."""
-
-    id: int
-    content: str
-    date_created: object
-    display_author_name: str
-    page: object
-
-
 @register.simple_tag(takes_context=True)
 def get_latest_comments(context, count=5):
     """Return recent approved comments for the current Wagtail Site only.
@@ -95,32 +84,42 @@ def get_latest_comments(context, count=5):
         count = 5
 
     epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY, 0)
-    cache_key = f"latest_comments_v2_site_{site.pk}_{count}_{epoch}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    cache_key = _latest_comments_cache_key(site.pk, count, epoch)
+    cached_ids = cache.get(cache_key)
+    if cached_ids is not None:
+        # В кеше — только целочисленные ID; Comment разрешаются на каждом
+        # вызове: прежний тип результата (Comment) полностью сохранён,
+        # User/password hash в кеш не попадают.
+        return _comments_in_id_order(cached_ids)
 
     public_site_pages = Page.objects.live().public().in_site(site)
     qs = Comment.objects.filter(
         is_approved=True,
         page__in=public_site_pages,
     )
-    comments = qs.select_related("page", "user").defer("user__password").order_by("-date_created")[:count]
-    # Resolve the display name while User is in memory, then cache a small DTO.
-    # Caching Comment/User model instances serializes the entire auth user row,
-    # including its password hash and unrelated private fields.
-    items = [
-        LatestCommentItem(
-            id=comment.pk,
-            content=comment.content,
-            date_created=comment.date_created,
-            display_author_name=comment.display_author_name(),
-            page=comment.page,
-        )
-        for comment in comments
-    ]
-    cache.set(cache_key, items, 60)
-    return items
+    comments = list(
+        qs.select_related("page", "user")
+        .prefetch_related(*_user_prefetch_paths())
+        .order_by("-date_created")[:count]
+    )
+    cache.set(cache_key, [comment.pk for comment in comments], 300)
+    return comments
+
+
+def _comments_in_id_order(ids):
+    """Resolve cached integer IDs back to Comment instances, preserving the
+    cached order. Nothing but integer IDs is ever cached."""
+    by_id = {
+        comment.pk: comment
+        for comment in Comment.objects.filter(pk__in=ids)
+        .select_related("page", "user")
+        .prefetch_related(*_user_prefetch_paths())
+    }
+    return [by_id[comment_id] for comment_id in ids if comment_id in by_id]
+
+
+def _latest_comments_cache_key(site_pk, count, epoch):
+    return f"latest_comment_ids_site_{site_pk}_{count}_{epoch}"
 
 
 @register.inclusion_tag('wagtail_mptt_comments/comments_block.html', takes_context=True)

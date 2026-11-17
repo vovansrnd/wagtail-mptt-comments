@@ -16,7 +16,6 @@ from wagtail.models import Page, Site
 
 from wagtail_mptt_comments.models import Comment, _LATEST_COMMENTS_EPOCH_KEY
 from wagtail_mptt_comments.templatetags.mptt_comment_tags import (
-    LatestCommentItem,
     get_latest_comments,
 )
 
@@ -75,81 +74,73 @@ class PublicContractBase(TestCase):
         self.request.site = Site.objects.filter(is_default_site=True).first()
 
 
-class GetLatestCommentsContractTests(PublicContractBase):
-    def test_returns_items_with_readme_example_fields(self):
-        """Каждый элемент содержит ровно поля README-примера: page, id,
-        display_author_name, content, date_created."""
+    def _context(self):
+        request = RequestFactory().get("/")
+        request.site = self.default_site
+        return Context({"request": request})
+
+    def test_returns_comment_instances_with_full_api(self):
+        """Результат — Comment-модели: полный прежний API (user,
+        display_author_name(), get_author_role*) доступен на каждом элементе."""
         items = get_latest_comments(self._context(), 5)
         self.assertTrue(items)
         for item in items:
-            for field in ("page", "id", "display_author_name", "content",
-                          "date_created"):
-                self.assertTrue(hasattr(item, field),
-                                f"DTO обязан предоставлять {field}")
+            self.assertIsInstance(item, Comment)
+            self.assertTrue(hasattr(item, "user"))
+            self.assertTrue(callable(getattr(item, "display_author_name")))
+            self.assertTrue(callable(getattr(item, "get_author_role")))
+            self.assertTrue(hasattr(item, "page"))
 
-    def test_dto_does_not_expose_removed_user_attributes(self):
-        """Удалённые User-атрибуты недоступны на DTO: user, avatar,
-        get_author_role*; display_author_name — строка, не метод."""
-        items = get_latest_comments(self._context(), 5)
-        for item in items:
-            for removed in ("user", "avatar_tag", "get_author_role",
-                            "get_author_role_label", "user__password"):
-                self.assertFalse(hasattr(item, removed),
-                                 f"DTO не должен предоставлять {removed}")
-            self.assertIsInstance(item.display_author_name, str)
-
-    def test_dto_is_frozen_dataclass(self):
-        """DTO иммутабелен: присваивание поля запрещено (frozen dataclass)."""
-        item = get_latest_comments(self._context(), 5)[0]
-        self.assertTrue(dataclasses.is_dataclass(item))
-        with self.assertRaises(dataclasses.FrozenInstanceError):
-            item.content = "иммутабельность"
-
-    def test_readme_example_renders_with_dto(self):
-        """Буквальный пример README работает на DTO без изменений:
-        рендер содержит автора, содержимое и якорь комментария."""
+    def test_readme_example_renders_with_comment_models(self):
+        """Буквальный пример README работает на Comment-моделях без изменений."""
         html = README_EXAMPLE_TEMPLATE.render(
             Context({"request": self._context()["request"]}))
         self.assertIn("Комментарий Alice", html)
         self.assertIn("#comment-", html)
 
 
-
-
 class CacheSafetyTests(PublicContractBase):
-    def test_cache_stores_dto_without_user_or_secrets(self):
-        """Кеш хранит список LatestCommentItem: ни одного User, ни одного
-        вхождения пароля/логина/email в сериализованном payload; у DTO
-        нет атрибута user."""
+    def test_cache_payload_contains_only_integer_ids(self):
+        """Кеш хранит ТОЛЬКО список целочисленных ID: ни Comment, ни User,
+        ни email, ни пароля/его хеша в сериализованном payload."""
         self._invoke_tag(5)
         site = Site.objects.filter(is_default_site=True).first()
         epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY, 0)
-        key = f"latest_comments_v2_site_{site.pk}_5_{epoch}"
+        key = f"latest_comment_ids_site_{site.pk}_5_{epoch}"
         cached = cache.get(key)
         self.assertTrue(cached, f"кеш {key!r} должен содержать результат")
-        for item in cached:
-            self.assertIsInstance(item, LatestCommentItem)
-            self.assertFalse(hasattr(item, "user"))
+        self.assertTrue(all(isinstance(v, int) for v in cached),
+                         f"в кеше должны быть только int ID: {cached!r}")
         payload = repr(cached)
-        for secret in (SAFETY_PASSWORD, "alice@example.test",
-                       "guest@example.test"):
+        for secret in (SAFETY_PASSWORD, "contract-alice", "contract-guest",
+                       "alice@example.test", "guest@example.test"):
             self.assertNotIn(secret, payload,
                              f"кеш не должен содержать {secret!r}")
-        # Имя автора — публичное поле виджета; его наличие в кеше допустимо.
-        self.assertIn("contract-alice", payload)
 
-    def test_cache_survives_repeated_calls_with_same_items(self):
-        """Повторный вызов в том же контексте возвращает кешированный DTO-список."""
+    def test_cached_ids_resolve_to_comments_in_order(self):
+        """Кешированные ID разрешаются обратно в Comment в кешированном
+        порядке (порядок -date_created сохраняется)."""
         self._invoke_tag(5)
         site = Site.objects.filter(is_default_site=True).first()
         epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY, 0)
-        key = f"latest_comments_v2_site_{site.pk}_5_{epoch}"
-        cached = cache.get(key)
-        self.assertTrue(cached)
-        again = get_latest_comments(self._context(), 5)
-        self.assertEqual(len(again), len(cached))
-        for item in again:
-            self.assertIsInstance(item, LatestCommentItem)
+        key = f"latest_comment_ids_site_{site.pk}_5_{epoch}"
+        cached_ids = cache.get(key)
+        self.assertTrue(cached_ids)
+        by_id = {c.pk: c for c in Comment.objects.filter(pk__in=cached_ids)
+                 .order_by("-date_created")}
+        ordered = [by_id[i] for i in cached_ids]
+        dates = [c.date_created for c in ordered]
+        self.assertEqual(dates, sorted(dates, reverse=True),
+                         "порядок кеша должен сохранять -date_created")
+
+    def _invoke_tag(self, count=5):
+        request = RequestFactory().get("/")
+        request.site = self.default_site
+        context = Context({"request": request})
+        template = Template(
+            "{% load mptt_comment_tags %}"
+            "{% get_latest_comments 5 as latest_comments %}")
+        template.render(context)
 
     def _invoke_tag(self, count=5):
         request = RequestFactory().get("/")
