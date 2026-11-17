@@ -338,7 +338,7 @@ class LatestCommentsWidgetVisibilityTests(TestCase):
         cache_key = f"latest_comment_ids_site_{site.pk}_10_{epoch}"
         cached = cache.get(cache_key)
         self.assertTrue(cached)
-        self.assertEqual([c.pk for c in cached], [result[0].pk])
+        self.assertEqual(list(cached), [result[0].pk])
         self.assertTrue(all(isinstance(value, int) for value in cached))
         payload = repr(cached)
         self.assertNotIn("latest-writer", payload)
