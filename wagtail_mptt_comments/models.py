@@ -96,6 +96,15 @@ class CommentQuerySet(models.QuerySet):
     def approved(self):
         return self.filter(is_approved=True)
 
+    def update(self, **kwargs):
+        """Bulk-обновления (модерация через QuerySet.update и admin bulk
+        actions) минуют сигналы — инвалидируем кеш виджета последних
+        комментариев явно. invalidate_latest_comments_cache() безопасна и
+        внутри atomic (deferred on_commit), и в autocommit (немедленно)."""
+        result = super().update(**kwargs)
+        invalidate_latest_comments_cache()
+        return result
+
 
 class CommentManager(TreeManager.from_queryset(CommentQuerySet)):
     def approved(self):
@@ -338,6 +347,15 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from wagtail.models import PageViewRestriction, Site
 from wagtail.signals import page_published, page_unpublished, page_slug_changed, post_page_move
+
+
+@receiver(post_save, sender=Comment)
+def _invalidate_latest_comments_after_save(sender, instance, **kwargs):
+    # Любое сохранение комментария (создание, approve/unapprove, правка в
+    # админке) сбрасывает кеш. Всегда, а не только при смене is_approved:
+    # узкие эвристики по полям молча пропускают сохранения из хост-проекта
+    # и MPTT-операций, а ложная инвалидация безвредна.
+    invalidate_latest_comments_cache()
 
 
 @receiver(post_delete, sender=Comment)

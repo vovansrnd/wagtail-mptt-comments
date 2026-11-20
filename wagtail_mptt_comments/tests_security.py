@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import Barrier
-from unittest import skipUnless
+from unittest import mock, skipUnless
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
@@ -12,7 +12,8 @@ from django.test import RequestFactory, TestCase, TransactionTestCase, override_
 from django.utils import timezone
 from wagtail.models import Page, PageViewRestriction, Site
 
-from .models import Comment, CommentRateLimitBucket, ConsumedCommentNonce, _LATEST_COMMENTS_EPOCH_KEY
+from .models import (Comment, CommentRateLimitBucket, ConsumedCommentNonce,
+                     ROLE_MEMBER, _LATEST_COMMENTS_EPOCH_KEY)
 from .templatetags.mptt_comment_tags import get_latest_comments
 from .views import _rate_limited
 from .security import CommentNonceReplayError, consume_comment_nonces
@@ -342,3 +343,248 @@ class LatestCommentsWidgetVisibilityTests(TestCase):
         self.assertTrue(all(isinstance(value, int) for value in cached))
         payload = repr(cached)
         self.assertNotIn("latest-writer", payload)
+
+class LatestCommentsCacheRegressionTests(TestCase):
+    """Ревью 0.2.9: кеш виджета последних комментариев должен инвалидироваться
+    при ЛЮБОМ изменении данных, от которого зависит результат, — сразу после
+    мутации результат виджета соответствует БД, без опоры на TTL.
+
+    Покрываемые пути: approve/unapprove через instance.save() (post_save),
+    QuerySet.update (bulk-модерация и admin bulk actions — сигналы молчат),
+    удаление (одно и bulk), unpublish/публикация страницы, снятие ограничения,
+    перенос корня Site, а также гарантия, что устаревшие ID из кеша прежней
+    эпохи не могут выдать комментарий, который больше не одобрен.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.author = User.objects.create_user(
+            username="cache-writer",
+            password="pw",
+            first_name="Cache",
+            last_name="Writer",
+        )
+        cls.site = Site.objects.get(is_default_site=True)
+        cls.site.hostname = "testserver"
+        cls.site.save()
+        cls.root = cls.site.root_page
+
+        cls.public_page = Page(title="Cache article", slug="cache-article", live=True)
+        cls.root.add_child(instance=cls.public_page)
+
+        cls.other_root = Page(title="Cache other root", slug="cache-other-root", live=True)
+        Page.get_first_root_node().add_child(instance=cls.other_root)
+
+    def setUp(self):
+        cache.clear()
+        cache.set(_LATEST_COMMENTS_EPOCH_KEY, 1, timeout=None)
+
+    # ---------------------------------------------------------------- helpers
+    def _make_comment(self, approved=True, page=None, content="Cache regression comment"):
+        return Comment.objects.create(
+            page=page or self.public_page,
+            user=self.author,
+            content=content,
+            is_approved=approved,
+        )
+
+    def _request(self):
+        return RequestFactory().get("/", HTTP_HOST="testserver")
+
+    def _latest(self):
+        return get_latest_comments({"request": self._request()}, count=10)
+
+    def _prime_cache(self, expected_pks):
+        """Два вызова: первый наполняет кеш, второй идёт по кеш-хиту."""
+        first = self._latest()
+        self.assertEqual([item.pk for item in first], expected_pks)
+        second = self._latest()
+        self.assertEqual([item.pk for item in second], expected_pks)
+        return first
+
+    def _cache_key_for_current_epoch(self):
+        site = Site.find_for_request(self._request())
+        epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY, 0)
+        return f"latest_comment_ids_site_{site.pk}_10_{epoch}"
+
+    # ------------------------------------------------------------- cache hit
+    def test_cache_hit_returns_comment_with_full_public_api(self):
+        comment = self._make_comment()
+        self._prime_cache([comment.pk])
+        self.assertTrue(self._latest())  # третий вызов — тоже по кешу
+
+        result = self._latest()
+        item = result[0]
+        self.assertIsInstance(item, Comment)
+        self.assertFalse(hasattr(item, "password"))
+        # прежний публичный API Comment сохранён на кеш-хите
+        self.assertEqual(item.user, self.author)
+        self.assertEqual(item.display_author_name(), "Cache Writer")
+        self.assertEqual(item.get_author_role(), ROLE_MEMBER)
+        self.assertTrue(item.avatar_tag)  # property, не метод
+        self.assertEqual(item.page.pk, self.public_page.pk)
+        # кеш-хит действительно состоялся: под текущим ключом лежат ID
+        cached = cache.get(self._cache_key_for_current_epoch())
+        self.assertEqual(list(cached), [comment.pk])
+
+    # ------------------------------------------------- approve/unapprove: save
+    def test_approve_via_save_invalidates_immediately(self):
+        comment = self._make_comment(approved=False)
+        self._prime_cache([])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            comment.is_approved = True
+            comment.save()
+
+        self.assertEqual([item.pk for item in self._latest()], [comment.pk])
+
+    def test_unapprove_via_save_invalidates_immediately(self):
+        comment = self._make_comment()
+        self._prime_cache([comment.pk])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            comment.is_approved = False
+            comment.save()
+
+        self.assertEqual(self._latest(), [])
+
+    # ----------------------------------------------- approve/unapprove: update
+    def test_queryset_update_invalidate_immediately_both_directions(self):
+        """Bulk-модерация через QuerySet.update НЕ вызывает сигналов —
+        инвалидация обязана происходить и здесь (admin bulk actions)."""
+        approved = self._make_comment(approved=False)
+        self._prime_cache([])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Comment.objects.filter(pk=approved.pk).update(is_approved=True)
+        self.assertEqual([item.pk for item in self._latest()], [approved.pk])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Comment.objects.approved().filter(pk=approved.pk).update(is_approved=False)
+        self.assertEqual(self._latest(), [])
+
+    # ---------------------------------------------------------------- deletion
+    def test_single_delete_and_bulk_delete_invalidate_immediately(self):
+        first = self._make_comment(content="first")
+        second = self._make_comment(content="second")
+        # явный порядок по -date_created: auto_now_add даёт совпадающие
+        # времена, и сортировка становится неоднозначной
+        now = timezone.now()
+        Comment.objects.filter(pk=first.pk).update(date_created=now - timedelta(minutes=1))
+        Comment.objects.filter(pk=second.pk).update(date_created=now - timedelta(minutes=2))
+        self._prime_cache([first.pk, second.pk])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first.delete()
+        self.assertEqual([item.pk for item in self._latest()], [second.pk])
+
+        # bulk-удаление (queryset.delete()) тоже обязано инвалидировать
+        with self.captureOnCommitCallbacks(execute=True):
+            Comment.objects.filter(pk=second.pk).delete()
+        self.assertEqual(self._latest(), [])
+
+    # ------------------------------------------------------------ page status
+    def test_page_unpublish_and_republish_invalidate_immediately(self):
+        comment = self._make_comment()
+        self._prime_cache([comment.pk])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.public_page.unpublish()
+        self.assertEqual(self._latest(), [])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            # ревизия для publish: страница уже имеет ревизию после unpublish
+            self.public_page.save_revision().publish()
+        self.assertEqual([item.pk for item in self._latest()], [comment.pk])
+
+    def test_restriction_removal_returns_comment_immediately(self):
+        restricted = Page(title="Cache restricted", slug="cache-restricted", live=True)
+        self.root.add_child(instance=restricted)
+        comment = self._make_comment(page=restricted)
+        PageViewRestriction.objects.create(page=restricted, restriction_type="login")
+        self._prime_cache([])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            PageViewRestriction.objects.get(page=restricted).delete()
+        self.assertEqual([item.pk for item in self._latest()], [comment.pk])
+
+    # -------------------------------------------------------------- site move
+    def test_site_root_change_invalidates_immediately(self):
+        comment = self._make_comment()
+        self._prime_cache([comment.pk])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.site.root_page = self.other_root
+            self.site.save()
+        # страница комментария выпала из дерева сайта — виджет обязан опустеть
+        self.assertEqual(self._latest(), [])
+
+    # ----------------------------------------------------------- stale IDs
+    def test_stale_ids_from_previous_epoch_can_resurface_unapproved(self):
+        """ID прежней эпохи не читаются: даже если под СТАРЫМ ключом лежит
+        устаревший ID (как при гипотетическом refill до commit), виджет
+        вычисляет ключ из ТЕКУЩЕЙ эпохи и разрешает комментарий из БД."""
+        comment = self._make_comment()
+        self._prime_cache([comment.pk])
+        stale_key = self._cache_key_for_current_epoch()
+        stale_epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            comment.is_approved = False
+            comment.save()
+        new_epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY)
+        self.assertNotEqual(new_epoch, stale_epoch)
+
+        # симуляция гонки: конкурентный читатель вернул устаревший ID под СТАРЫЙ ключ
+        cache.set(stale_key, [comment.pk], timeout=300)
+        # виджет читает ключ новой эпохи и разрешает комментарий заново из БД:
+        # не одобрен — не возвращается ни при каком раскладе
+        self.assertEqual(self._latest(), [])
+
+class RateLimitWindowBoundaryTests(TestCase):
+    """Ревью 0.2.9: сброс окна лимитера происходит ровно на границе
+    window_started_at <= now - window (включительно). На микросекунду
+    свежее границы окно ещё активно. Время управляемое (mock timezone.now),
+    без физических ожиданий."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def _request(self, ip="203.0.113.90"):
+        request = self.factory.post("/comments/add/1/", REMOTE_ADDR=ip)
+        request.user = AnonymousUser()
+        return request
+
+    def test_reset_happens_exactly_at_window_boundary(self):
+        request = self._request()
+        self.assertFalse(_rate_limited(request, "boundary", limit=2, window=60))
+        self.assertFalse(_rate_limited(request, "boundary", limit=2, window=60))
+        self.assertTrue(_rate_limited(request, "boundary", limit=2, window=60))
+        bucket = CommentRateLimitBucket.objects.get()
+
+        T = timezone.now()
+        CommentRateLimitBucket.objects.filter(pk=bucket.pk).update(
+            window_started_at=T - timedelta(seconds=60)
+        )
+        with mock.patch.object(timezone, "now", return_value=T):
+            self.assertFalse(_rate_limited(request, "boundary", limit=2, window=60))
+        bucket.refresh_from_db()
+        self.assertEqual(bucket.count, 1)
+        self.assertEqual(bucket.window_started_at, T)
+
+    def test_microsecond_inside_window_does_not_reset(self):
+        request = self._request()
+        self.assertFalse(_rate_limited(request, "boundary-inside", limit=2, window=60))
+        self.assertFalse(_rate_limited(request, "boundary-inside", limit=2, window=60))
+        bucket = CommentRateLimitBucket.objects.get()
+        self.assertEqual(bucket.count, 2)
+
+        T = timezone.now()
+        CommentRateLimitBucket.objects.filter(pk=bucket.pk).update(
+            window_started_at=T - timedelta(seconds=60) + timedelta(microseconds=1)
+        )
+        with mock.patch.object(timezone, "now", return_value=T):
+            self.assertTrue(_rate_limited(request, "boundary-inside", limit=2, window=60))
+        bucket.refresh_from_db()
+        self.assertEqual(bucket.count, 2)
