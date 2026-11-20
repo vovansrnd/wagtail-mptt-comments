@@ -3,7 +3,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 from django.db import DatabaseError
 from unittest.mock import patch
 
-from .models import Comment, ConsumedCommentNonce
+from .models import Comment, CommentRateLimitBucket, ConsumedCommentNonce
 from .views import _client_ip
 
 
@@ -250,6 +250,23 @@ class CommentEndpointAccessTests(TestCase):
             ).exists()
         )
         self.assertEqual(ConsumedCommentNonce.objects.count(), 1)
+
+    def test_invalid_post_consumes_rate_limit_slot_before_validation(self):
+        """Политика антиспама (зафиксирована в README): слот лимитера
+        расходуется ЛЮБОЙ POST-попыткой, до валидации формы, — пробинг
+        формы невалидными данными не «бесплатный». При этом nonce формы
+        не расходуется (см. предыдущий тест): исправленный POST с тем же
+        токеном возможен, пока лимитер не исчерпан."""
+        self.client.force_login(self.user)
+        token = self._backdated_form_token(self.public_page.pk)
+        invalid = self.client.post(
+            f"/comments/add/{self.public_page.pk}/",
+            {"content": "bad", "parent": "", "form_token": token},
+        )
+        self.assertEqual(invalid.status_code, 302)
+        self.assertIn("has_errors=1", invalid["Location"])
+        self.assertEqual(CommentRateLimitBucket.objects.count(), 1)
+        self.assertEqual(ConsumedCommentNonce.objects.count(), 0)
 
     def test_add_comment_replay_same_form_token_rejected(self):
         """Повторная отправка с тем же form_token отклоняется (session nonces)."""
