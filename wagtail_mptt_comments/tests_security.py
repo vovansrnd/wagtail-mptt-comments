@@ -14,7 +14,7 @@ from wagtail.models import Page, PageViewRestriction, Site
 
 from .models import (Comment, CommentRateLimitBucket, ConsumedCommentNonce,
                      ROLE_MEMBER, _LATEST_COMMENTS_EPOCH_KEY)
-from .templatetags.mptt_comment_tags import get_latest_comments
+from .templatetags.mptt_comment_tags import get_latest_comments, _latest_comments_cache_key
 from .views import _rate_limited
 from .security import CommentNonceReplayError, consume_comment_nonces
 
@@ -588,3 +588,172 @@ class RateLimitWindowBoundaryTests(TestCase):
             self.assertTrue(_rate_limited(request, "boundary-inside", limit=2, window=60))
         bucket.refresh_from_db()
         self.assertEqual(bucket.count, 2)
+
+class LatestCommentsFailClosedCacheHitTests(TestCase):
+    """Fail-closed на cache hit (ревью 0.2.9): разрешение кешированных ID
+    ПОВТОРНО применяет eligibility-предикаты (is_approved + live/public/в
+    текущем Site). Моделируется ПРОПУЩЕННАЯ инвалидация: кеш заполнен,
+    объект изменён (штатная инвалидация происходит), затем устаревший ID
+    записывается обратно под АКТУАЛЬНЫЙ epoch key — как при сбое epoch или
+    refill до commit. Ни в одном сценарии cache hit не возвращает
+    запрещённый Comment; недозаполнение добирается свежим запросом."""
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.author = User.objects.create_user(
+            username="failclosed-writer", password="pw"
+        )
+        cls.site = Site.objects.get(is_default_site=True)
+        cls.site.hostname = "testserver"
+        cls.site.save()
+        cls.root = cls.site.root_page
+
+        cls.public_page = Page(title="Failclosed article", slug="failclosed-article", live=True)
+        cls.root.add_child(instance=cls.public_page)
+
+        cls.other_root = Page(title="Failclosed other root", slug="failclosed-other-root", live=True)
+        Page.get_first_root_node().add_child(instance=cls.other_root)
+
+    def setUp(self):
+        cache.clear()
+        cache.set(_LATEST_COMMENTS_EPOCH_KEY, 1, timeout=None)
+
+    def _request(self):
+        return RequestFactory().get("/", HTTP_HOST="testserver")
+
+    def _latest(self, count=10):
+        return get_latest_comments({"request": self._request()}, count=count)
+
+    def _make_comment(self, page=None, content="Failclosed comment", approved=True,
+                      minutes_ago=0):
+        return Comment.objects.create(
+            page=page or self.public_page,
+            user=self.author,
+            content=content,
+            is_approved=approved,
+        )
+
+    def _write_stale_under_current_key(self, ids, count=10):
+        """Имитация пропущенной инвалидации/refill до commit: устаревшие ID
+        кладутся под ключ ТЕКУЩЕЙ эпохи. Обязана вызываться ПОСЛЕ мутации
+        (эпоха уже смещена штатными ресиверами)."""
+        site = Site.find_for_request(self._request())
+        epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY)
+        cache.set(_latest_comments_cache_key(site.pk, count, epoch), list(ids), timeout=300)
+
+    # 1) не одобрен
+    def test_unapproved_comment_hidden_on_cache_hit(self):
+        comment = self._make_comment()
+        self.assertEqual([c.pk for c in self._latest()], [comment.pk])
+        with self.captureOnCommitCallbacks(execute=True):
+            comment.is_approved = False
+            comment.save()
+        self._write_stale_under_current_key([comment.pk])
+        self.assertEqual(self._latest(), [])
+
+    # 2) страница unpublish
+    def test_unpublished_page_comment_hidden_on_cache_hit(self):
+        comment = self._make_comment()
+        self.assertEqual([c.pk for c in self._latest()], [comment.pk])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.public_page.unpublish()
+        self._write_stale_under_current_key([comment.pk])
+        self.assertEqual(self._latest(), [])
+
+    # 3) добавлено ограничение
+    def test_restricted_page_comment_hidden_on_cache_hit(self):
+        comment = self._make_comment()
+        self.assertEqual([c.pk for c in self._latest()], [comment.pk])
+        with self.captureOnCommitCallbacks(execute=True):
+            PageViewRestriction.objects.create(
+                page=self.public_page, restriction_type="login")
+        self._write_stale_under_current_key([comment.pk])
+        self.assertEqual(self._latest(), [])
+
+    # 4) страница вышла из текущего Site (перенос корня)
+    def test_page_moved_out_of_site_hidden_on_cache_hit(self):
+        comment = self._make_comment()
+        self.assertEqual([c.pk for c in self._latest()], [comment.pk])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.site.root_page = self.other_root
+            self.site.save()
+        self._write_stale_under_current_key([comment.pk])
+        self.assertEqual(self._latest(), [])
+
+    # 5) чужой Site не получает эти ID (путаница ключей + fail-closed resolver)
+    def test_foreign_site_does_not_receive_stale_ids(self):
+        comment = self._make_comment()
+        self.assertEqual([c.pk for c in self._latest()], [comment.pk])
+        # ID комментария текущего сайта кладутся под ключ ЧУЖОГО сайта
+        other_site = Site.objects.create(
+            hostname="foreign.failclosed.test", root_page=self.other_root,
+            is_default_site=False, site_name="Foreign")
+        epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY)
+        cache.set(
+            _latest_comments_cache_key(other_site.pk, 10, epoch),
+            [comment.pk], timeout=300,
+        )
+        foreign_request = RequestFactory().get("/", HTTP_HOST="foreign.failclosed.test")
+        result = get_latest_comments({"request": foreign_request}, count=10)
+        # страница комментария не в дереве чужого сайта — fail closed
+        self.assertEqual(result, [])
+
+    # 6) backfill: отсеянный ID добирается свежим запросом до полного count
+    def test_backfill_restores_full_count_and_updates_key(self):
+        now = timezone.now()
+        c1 = self._make_comment(content="fc-newest", minutes_ago=3)
+        c2 = self._make_comment(content="fc-second")
+        c3 = self._make_comment(content="fc-third")
+        c4 = self._make_comment(content="fc-oldest", approved=True)
+        # явный порядок: c1 новее c2, c2 новее c3, c3 новее c4
+        Comment.objects.filter(pk=c1.pk).update(date_created=now - timedelta(minutes=10))
+        Comment.objects.filter(pk=c2.pk).update(date_created=now - timedelta(minutes=20))
+        Comment.objects.filter(pk=c3.pk).update(date_created=now - timedelta(minutes=30))
+        Comment.objects.filter(pk=c4.pk).update(date_created=now - timedelta(minutes=40))
+
+        first = self._latest(count=3)
+        self.assertEqual([c.pk for c in first], [c1.pk, c2.pk, c3.pk])
+
+        # штатная инвалидация при скрытии c2 (эпоха сместится)
+        with self.captureOnCommitCallbacks(execute=True):
+            c2.is_approved = False
+            c2.save()
+        # пропущенная инвалидация: устаревший список кладётся под актуальный key
+        self._write_stale_under_current_key([c1.pk, c2.pk, c3.pk], count=3)
+
+        result = self._latest(count=3)
+        # c2 отфильтрован на cache hit, виджет добран свежим запросом до count=3:
+        # [c1, c3] из кеша + c4 из БД; порядок по -date_created
+        self.assertEqual([c.pk for c in result], [c1.pk, c3.pk, c4.pk])
+        # IDs под ТЕКУЩИМ epoch key обновлены
+        site = Site.find_for_request(self._request())
+        epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY)
+        cached = cache.get(_latest_comments_cache_key(site.pk, 3, epoch))
+        self.assertEqual(list(cached), [c1.pk, c3.pk, c4.pk])
+
+    # B: bulk_update группируется через QuerySet.update() — инвалидация покрыта
+    def test_bulk_update_invalidates_via_update_override(self):
+        comment = self._make_comment()
+        self.assertEqual([c.pk for c in self._latest()], [comment.pk])
+
+        from wagtail_mptt_comments.models import CommentQuerySet
+        real_update = CommentQuerySet.update
+        called = []
+
+        def spy_update(qs, **kwargs):
+            called.append(kwargs)
+            return real_update(qs, **kwargs)
+
+        CommentQuerySet.update = spy_update
+        try:
+            with self.captureOnCommitCallbacks(execute=True):
+                obj = Comment.objects.get(pk=comment.pk)
+                obj.is_approved = False
+                Comment.objects.bulk_update([obj], ["is_approved"])
+        finally:
+            CommentQuerySet.update = real_update
+
+        # доказано: bulk_update проходит через переопределённый update()
+        self.assertTrue(called)
+        self.assertEqual(self._latest(), [])
