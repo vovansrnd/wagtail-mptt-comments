@@ -251,7 +251,9 @@ class Comment(MPTTModel):
             self.parent = current_parent
 
         super().save(*args, **kwargs)
-        invalidate_latest_comments_cache()
+        # Инвалидация кеша здесь НЕ нужна: super().save() уже вызвал
+        # post_save-ресивер (_invalidate_latest_comments_after_save).
+        # Дублирующий bump удваивал сброс кеша при каждом сохранении.
 
         if not is_new:
             return
@@ -348,6 +350,14 @@ from django.dispatch import receiver
 from wagtail.models import PageViewRestriction, Site
 from wagtail.signals import page_published, page_unpublished, page_slug_changed, post_page_move
 
+
+# Про bulk_create: Django НЕ шлёт post_save при bulk_create, но этот путь для
+# Comment физически недоступен — bulk_create обходит менеджмент дерева MPTT,
+# tree-поля (lft/rght/level/tree_id) остаются NULL и INSERT падает с NOT NULL
+# constraint failed (проверено эмпирически; см. регрессию bulk_create в
+# тестах). Единственный путь создания — instance.save(), который покрыт
+# post_save. bulk_update группирует обновления через QuerySet.update()
+# (Django 4.2+), поэтому покрыт переопределённым CommentQuerySet.update().
 
 @receiver(post_save, sender=Comment)
 def _invalidate_latest_comments_after_save(sender, instance, **kwargs):

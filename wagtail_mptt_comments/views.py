@@ -302,10 +302,9 @@ def comment_action(request):
 
     comments = Comment.objects.filter(pk__in=comment_ids)
     if action == "approve":
+        # Инвалидация выполняется внутри CommentQuerySet.update()
+        # (bulk-путь admin-модерации); дублирующий bump убран.
         cnt = comments.update(is_approved=True)
-        if cnt:
-            from .models import invalidate_latest_comments_cache
-            invalidate_latest_comments_cache()
         return JsonResponse({"success": True, "message": _("Approved %(count)s comments.") % {'count': cnt}})
     elif action == "delete":
         if not request.user.has_perm("wagtail_mptt_comments.delete_comment"):
