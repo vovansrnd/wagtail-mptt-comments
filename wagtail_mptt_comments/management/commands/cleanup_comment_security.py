@@ -42,7 +42,15 @@ class Command(BaseCommand):
             )
             if not ids:
                 break
-            deleted, _details = CommentRateLimitBucket.objects.filter(key_hash__in=ids).delete()
+            # TOCTOU: между выбором stale-ключей и удалением параллельный POST
+            # мог получить этот же bucket и сбросить окно
+            # (_consume_rate_bucket: window_started_at=now, count=1). DELETE
+            # ОБЯЗАН повторно проверять устаревание, иначе cleanup удалил бы
+            # уже активный bucket, а следующий POST создал бы новый — обход
+            # части лимита. Обновлённые строки переживают cleanup.
+            deleted, _details = CommentRateLimitBucket.objects.filter(
+                key_hash__in=ids, window_started_at__lt=cutoff
+            ).delete()
             total_rate_rows += deleted
             if len(ids) < batch_size:
                 break
@@ -57,6 +65,9 @@ class Command(BaseCommand):
             )
             if not ids:
                 break
+            # TOCTOU здесь нет: ConsumedCommentNonce неизменяемы после
+            # создания (expires_at никогда не обновляется, повторное
+            # потребление отклоняется), параллельного «обновления» записи нет.
             deleted, _details = ConsumedCommentNonce.objects.filter(nonce_hash__in=ids).delete()
             total_nonce_rows += deleted
             if len(ids) < batch_size:

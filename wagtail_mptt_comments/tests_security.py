@@ -226,6 +226,50 @@ class CommentSecurityCleanupCommandTests(TestCase):
         call_command("cleanup_comment_security", days=2, batch_size=10, verbosity=0)
         self.assertTrue(CommentRateLimitBucket.objects.filter(key_hash="e" * 64).exists())
 
+    def test_cleanup_race_keeps_bucket_refreshed_after_selection(self):
+        """TOCTOU-интерливинг SELECT/DELETE: ключ попал в выбранный batch как
+        stale, затем параллельный POST обновил окно того же bucket
+        (_consume_rate_bucket: window_started_at=now, count=1). DELETE с
+        повторной проверкой window_started_at__lt=cutoff обязан оставить
+        строку — иначе следующий POST обходил бы часть лимита."""
+        bucket = CommentRateLimitBucket.objects.create(
+            key_hash="f" * 64,
+            window_started_at=timezone.now() - timedelta(days=3),
+            count=5,
+        )
+        real_filter = CommentRateLimitBucket.objects.filter
+
+        def interleaved_filter(*args, **kwargs):
+            # Фаза SELECT (без key_hash__in): имитируем параллельный POST,
+            # который успел обновить окно этого же ключа до DELETE.
+            if "window_started_at__lt" in kwargs and "key_hash__in" not in kwargs:
+                real_filter(key_hash=bucket.key_hash).update(
+                    window_started_at=timezone.now(), count=1
+                )
+            return real_filter(*args, **kwargs)
+
+        with mock.patch.object(
+            CommentRateLimitBucket.objects, "filter",
+            side_effect=interleaved_filter,
+        ):
+            call_command("cleanup_comment_security", days=2, batch_size=10, verbosity=0)
+
+        bucket.refresh_from_db()
+        self.assertEqual(bucket.count, 1)  # строка пережила cleanup
+        self.assertGreater(bucket.window_started_at,
+                           timezone.now() - timedelta(seconds=2))
+
+    def test_cleanup_still_deletes_truly_stale_after_race_fix(self):
+        """Позитивный контроль: без интерливинга genuinely stale строки
+        удаляются как раньше."""
+        CommentRateLimitBucket.objects.create(
+            key_hash="g" * 64,
+            window_started_at=timezone.now() - timedelta(days=3),
+            count=7,
+        )
+        call_command("cleanup_comment_security", days=2, batch_size=10, verbosity=0)
+        self.assertFalse(CommentRateLimitBucket.objects.filter(key_hash="g" * 64).exists())
+
 
 class LatestCommentsWidgetVisibilityTests(TestCase):
     @classmethod
