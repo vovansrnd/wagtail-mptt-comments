@@ -351,13 +351,16 @@ from wagtail.models import PageViewRestriction, Site
 from wagtail.signals import page_published, page_unpublished, page_slug_changed, post_page_move
 
 
-# Про bulk_create: Django НЕ шлёт post_save при bulk_create, но этот путь для
-# Comment физически недоступен — bulk_create обходит менеджмент дерева MPTT,
-# tree-поля (lft/rght/level/tree_id) остаются NULL и INSERT падает с NOT NULL
-# constraint failed (проверено эмпирически; см. регрессию bulk_create в
-# тестах). Единственный путь создания — instance.save(), который покрыт
-# post_save. bulk_update группирует обновления через QuerySet.update()
-# (Django 4.2+), поэтому покрыт переопределённым CommentQuerySet.update().
+# Про bulk_create: Django НЕ шлёт post_save при bulk_create. Стандартный
+# bulk_create НЕ ПОДДЕРЖИВАЕТСЯ django-mptt для этой модели — он обходит
+# формирование дерева, tree-поля (lft/rght/level/tree_id) остаются NULL и
+# INSERT падает с NOT NULL constraint failed на lft (проверено эмпирически).
+# Обходные вставки (ручной SQL или INSERT с заранее заполненными tree-
+# полями) НЕ поддерживаются и гарантию инвалидации кеша НЕ дают: рассчитывать
+# на инвалидацию при них нельзя. Поддерживаемый путь создания —
+# instance.save(), покрытый post_save. bulk_update группирует обновления
+# через QuerySet.update() (Django 4.2+), поэтому покрыт переопределённым
+# CommentQuerySet.update().
 
 @receiver(post_save, sender=Comment)
 def _invalidate_latest_comments_after_save(sender, instance, **kwargs):

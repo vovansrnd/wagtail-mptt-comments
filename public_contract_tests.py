@@ -1,13 +1,13 @@
-"""Д67-Б: тесты ПУБЛИЧНОГО контракта get_latest_comments после замены
-Comment на LatestCommentItem (DTO) в кеше.
+"""Д67-Б: тесты ПУБЛИЧНОГО контракта get_latest_comments.
 
-Фиксирует контракт README-примера (page, id, display_author_name, content)
-и гарантию безопасности: кеш не содержит User, password hash, username,
-email или иных приватных полей; DTO не предоставляет user/avatar/
-get_author_role*; DTO иммутабелен (frozen dataclass).
+Контракт: в кеше хранятся ТОЛЬКО целочисленные ID комментариев; функция
+возвращает полноценные Comment instances с прежним API (user,
+display_author_name(), get_author_role(), avatar_tag). Гарантии
+безопасности: кеш не содержит User, password hash, username, email или
+иных приватных полей; при разрешении ID заново применяются eligibility-
+предикаты (approved + live/public/в текущем Site), поэтому устаревший ID
+не возвращает скрытый или чужой-site комментарий.
 """
-import dataclasses
-
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.template import Context, Template

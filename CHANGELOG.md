@@ -5,8 +5,10 @@
   django-prose-editor 0.27.x admin forms on fresh installs.
 
 - Restrict the latest-comments widget to approved comments on live, public pages
-  belonging to the current Wagtail Site. Cache a small display DTO instead of
-  serializing complete Comment/User objects.
+  belonging to the current Wagtail Site. Cache only integer comment IDs instead
+  of serializing complete Comment/User objects; cached IDs are resolved back to
+  full Comment instances on every call, with the same eligibility predicates
+  re-applied so stale IDs cannot surface hidden or foreign-site comments.
 - Replace the cache get/set comment limiter with a database-backed conditional
   counter. The unique bucket and atomic updates keep concurrent requests from
   exceeding the configured limit across workers. Database errors fail closed

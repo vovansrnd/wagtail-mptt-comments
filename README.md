@@ -103,7 +103,7 @@ The package does not require a custom Wagtail Page model. Your commentable page 
 </ul>
 ```
 
-The latest-comments widget cache is invalidated after page publish/unpublish, page visibility restriction changes, page moves/slug changes, and Site changes. Its short cache lifetime also bounds any missed invalidation. The template tag is intended for the current Wagtail Site. It returns only approved comments attached to live, public pages of that Site. Keep it in a request context where the current `request` and Site are available. If your project has custom domain routing or serves content outside a configured Wagtail Site, verify that the widget returns no cross-site comments rather than broadening to all sites. The cache stores display DTOs rather than Comment/User model instances.
+The latest-comments widget cache is invalidated after page publish/unpublish, page visibility restriction changes, page moves/slug changes, and Site changes. Its short cache lifetime also bounds any missed invalidation. The template tag is intended for the current Wagtail Site. It returns only approved comments attached to live, public pages of that Site. Keep it in a request context where the current `request` and Site are available. If your project has custom domain routing or serves content outside a configured Wagtail Site, verify that the widget returns no cross-site comments rather than broadening to all sites. The cache stores only integer comment IDs rather than Comment/User model instances; on every call the IDs are resolved back to full Comment instances after re-checking the same eligibility predicates (approved, live public page of the current Site), so a stale ID can never surface a hidden, unapproved, or foreign-site comment.
 
 ## Settings
 
