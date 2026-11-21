@@ -102,3 +102,8 @@ Wenn der Ablauf nicht funktioniert, prüfen Sie App-Konfiguration, Migrationen, 
 
 MIT. Quellcode: [https://github.com/vovansrnd/wagtail-mptt-comments](https://github.com/vovansrnd/wagtail-mptt-comments).
 
+## Versionshinweise 0.2.9
+
+- Sicherheitsfunktionen für Gäste: Honeypot, signiertes seitengebundenes Formular-Token, signierte Mathe-Aufgabe, browserbezogene Replay-Erkennung (HMAC, an das CSRF-Geheimnis des Browsers gebunden) und ein datenbankgestützter atomarer Raten-Limiter pro IP/Konto (`COMMENTS_RATE_LIMIT`, `COMMENTS_RATE_WINDOW`).
+- Planen Sie den täglichen Lauf der Bereinigung: `python manage.py cleanup_comment_security` entfernt veraltete Raten-Limiter-Einträge und abgelaufene Nonces.
+- Das Widget der neuesten Kommentare zeigt nur freigegebene Kommentare auf live, öffentlichen Seiten der aktuellen Wagtail-Site.

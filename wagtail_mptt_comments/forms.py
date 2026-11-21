@@ -2,12 +2,15 @@ import logging
 import random
 import secrets
 import time
+from datetime import timedelta
 from django import forms
 from django.conf import settings
 from django.core import signing
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django_prose_editor.widgets import AdminProseEditorWidget
 from .models import Comment, ADMIN_RESPONSE_EXTENSIONS, COMMENTS_EDITOR_EXTENSIONS
+from .security import CommentNonceReplayError, consume_comment_nonces
 
 CAPTCHA_SALT = "wagtail_mptt_comments.captcha"
 logger = logging.getLogger(__name__)
@@ -125,8 +128,8 @@ class PublicCommentForm(forms.ModelForm):
             raise forms.ValidationError(_("This form belongs to another page."), code="wrong_page")
         if age < 3 or age > max_age:
             raise forms.ValidationError(_("Form submitted too quickly or the form has expired."), code="too_fast_or_expired")
-        # Do not consume the nonce here: other fields may still fail validation,
-        # and the user should be able to correct those fields without refreshing.
+        # Replay tracking is intentionally deferred until the view has validated
+        # every field and is about to save the comment. Validation must be side-effect free.
         self._validated_form_nonce = nonce
         return token
 
@@ -151,30 +154,38 @@ class PublicCommentForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        # A public page may be cached by a proxy/CDN. A global one-time cache key
-        # would make the same cached HTML token fail for unrelated visitors, so
-        # replay tracking is scoped to the submitting session and only written
-        # after all other form fields validate successfully.
-        if self.errors or not self.request:
-            return cleaned_data
-        tokens = []
-        if self._validated_form_nonce:
-            tokens.append("form:" + self._validated_form_nonce)
-        if self._validated_captcha_nonce:
-            tokens.append("captcha:" + self._validated_captcha_nonce)
-        if not tokens:
-            return cleaned_data
-        session_key = "wagtail_mptt_comments_used_nonces"
-        used = self.request.session.get(session_key, [])
-        if not isinstance(used, list):
-            used = []
-        if any(token in used for token in tokens):
-            raise forms.ValidationError(
-                _("This form verification has already been used. Please refresh the page."),
-                code="token_replayed",
-            )
-        self.request.session[session_key] = (used + tokens)[-100:]
+        # Validation stays side-effect free. The view consumes the token only
+        # after every field is valid and in the comment-save transaction.
         return cleaned_data
+
+    def consume_replay_nonces(self):
+        """Atomically consume verified nonces for this browser's CSRF identity."""
+        if not self.request:
+            return
+        nonces = []
+        now = timezone.now()
+        if self._validated_form_nonce:
+            max_age = int(getattr(settings, "COMMENTS_FORM_TOKEN_MAX_AGE", 2 * 60 * 60))
+            nonces.append(("form", self._validated_form_nonce, now + timedelta(seconds=max_age)))
+        if self._validated_captcha_nonce:
+            max_age = int(getattr(settings, "COMMENTS_CAPTCHA_MAX_AGE", 2 * 60 * 60))
+            nonces.append(("captcha", self._validated_captcha_nonce, now + timedelta(seconds=max_age)))
+        if not nonces:
+            return
+
+        # CsrfViewMiddleware places the unmasked per-browser secret here. Do not
+        # store it; the replay service derives an HMAC digest from it.
+        csrf_secret = self.request.META.get("CSRF_COOKIE")
+        if not csrf_secret:
+            csrf_cookie_name = getattr(settings, "CSRF_COOKIE_NAME", "csrftoken")
+            csrf_secret = self.request.COOKIES.get(csrf_cookie_name)
+        try:
+            consume_comment_nonces(nonces, csrf_secret)
+        except CommentNonceReplayError as exc:
+            raise forms.ValidationError(
+                _("This form verification has already been used or expired. Please refresh the page."),
+                code="token_replayed",
+            ) from exc
 
     def clean_content(self):
         c = (self.cleaned_data.get("content") or "").strip()

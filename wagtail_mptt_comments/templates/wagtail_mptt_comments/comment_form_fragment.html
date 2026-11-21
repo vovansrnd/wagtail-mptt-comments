@@ -1,0 +1,12 @@
+{# Универсальный фрагмент формы комментария (тема перекрывается блогом: blog/<theme>/components/comment_form_fragment.html) #}
+{% load i18n %}
+<div class="mptt-comment-form-fragment">
+  {% if messages %}
+    {% for message in messages %}<div class="alert alert-{{ message.tags }}" role="alert">{{ message }}</div>{% endfor %}
+  {% endif %}
+  <form method="post" action="{% url 'wagtail_mptt_comments:add_comment_to_page' page.id %}">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">{% trans "Отправить" %}</button>
+  </form>
+</div>

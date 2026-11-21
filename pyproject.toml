@@ -4,21 +4,30 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "wagtail-mptt-comments"
-version = "0.2.7"
+version = "0.2.9"
 description = "Nested MPTT comments with spam protection and AJAX admin moderation for Wagtail CMS."
 readme = "README.md"
 authors = [{ name = "Vladimir Tarasov" }]
 license = { text = "MIT" }
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Framework :: Django",
+    "Framework :: Django :: 6.0",
     "Framework :: Wagtail",
+    "Framework :: Wagtail :: 8",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
     "wagtail>=6.0",
     "django-mptt>=0.16.0",
     "django-prose-editor>=0.26",
+    # django-js-asset 5.x переименовал модуль (django_js_asset -> js_asset) и
+    # отвергает import-map js-списки: media django-prose-editor 0.27.x ломается
+    # на чистых установках (TypeError при рендере админ-форм комментариев).
+    # Ядро проекта пинит 4.2.0 — фиксируем совместимую границу в метаданных.
+    "django-js-asset<5",
     "nh3>=0.2.14",
 ]
 

@@ -102,3 +102,8 @@ urlpatterns = [
 
 MIT. 소스 코드: [https://github.com/vovansrnd/wagtail-mptt-comments](https://github.com/vovansrnd/wagtail-mptt-comments).
 
+## 0.2.9 릴리스 노트
+
+- 게스트 스팸 방지: 허니팟, 페이지에 바인딩된 서명된 폼 토큰, 서명된 수학 챌린지, 브라우저 단위 리플레이 감지(브라우저 CSRF 시크릿에 바인딩된 HMAC), 데이터베이스 기반 IP/계정별 원자적 레이트 리미터 (`COMMENTS_RATE_LIMIT`, `COMMENTS_RATE_WINDOW`).
+- 정리 작업을 매일 예약하세요: `python manage.py cleanup_comment_security`가 오래된 레이트 리미터 기록과 만료된 논스를 제거합니다.
+- 최신 댓글 위젯은 현재 Wagtail 사이트의 공개 페이지에 있는 승인된 댓글만 표시합니다.

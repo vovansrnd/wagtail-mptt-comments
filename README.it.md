@@ -102,3 +102,8 @@ Se il flusso non funziona, controlla configurazione dell’app, migrazioni, ordi
 
 MIT. Codice sorgente: [https://github.com/vovansrnd/wagtail-mptt-comments](https://github.com/vovansrnd/wagtail-mptt-comments).
 
+## Note di rilascio 0.2.9
+
+- Funzioni anti-spam per gli ospiti: honeypot, token di modulo firmato e legato alla pagina, sfida matematica firmata, rilevamento del replay per browser (HMAC legato al segreto CSRF del browser) e un limitatore di frequenza atomico per IP/account supportato dal database (`COMMENTS_RATE_LIMIT`, `COMMENTS_RATE_WINDOW`).
+- Pianifica la pulizia quotidiana: `python manage.py cleanup_comment_security` rimuove le voci obsolete del limitatore e i nonce scaduti.
+- Il widget degli ultimi commenti mostra solo i commenti approvati sulle pagine pubbliche e live del sito Wagtail corrente.

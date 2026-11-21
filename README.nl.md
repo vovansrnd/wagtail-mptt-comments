@@ -102,3 +102,8 @@ Als de workflow niet werkt, controleer appconfiguratie, migraties, URL-volgorde,
 
 MIT. Broncode: [https://github.com/vovansrnd/wagtail-mptt-comments](https://github.com/vovansrnd/wagtail-mptt-comments).
 
+## Releaseopmerkingen 0.2.9
+
+- Antispam voor gasten: honeypot, een ondertekend aan pagina gebonden formuliertoken, een ondertekende rekenopdracht, browsergebonden replay-detectie (HMAC gekoppeld aan het CSRF-geheim van de browser) en een database-ondersteunde atomieke rate limiter per IP/account (`COMMENTS_RATE_LIMIT`, `COMMENTS_RATE_WINDOW`).
+- Plan dagelijks de opruiming: `python manage.py cleanup_comment_security` verwijdert verouderde limiter-records en verlopen nonces.
+- De widget met de laatste toon alleen goedgekeurde reacties op live, openbare pagina's van de huidige Wagtail-site.

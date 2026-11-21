@@ -1,5 +1,6 @@
 import logging
 import threading
+import uuid
 from django.core.mail import send_mail
 from django.core.cache import cache
 from django.conf import settings
@@ -18,14 +19,19 @@ _LATEST_COMMENTS_EPOCH_KEY = "wagtail_mptt_comments:latest_comments_epoch"
 
 
 def invalidate_latest_comments_cache():
-    """Bump a version key so stale latest-comments lists become unreachable."""
-    try:
-        cache.add(_LATEST_COMMENTS_EPOCH_KEY, 0, timeout=None)
-        cache.incr(_LATEST_COMMENTS_EPOCH_KEY)
-    except ValueError:
-        cache.set(_LATEST_COMMENTS_EPOCH_KEY, 1, timeout=None)
-    except Exception:
-        logger.exception("Could not bump latest-comments cache epoch")
+    """Invalidate cached widget data after the surrounding DB transaction commits.
+
+    A fresh opaque epoch avoids relying on FileBasedCache.incr(), which is not
+    an inter-process atomic operation. ``on_commit`` also prevents a reader from
+    refilling the cache from pre-commit database state under the new epoch.
+    """
+    def bump_epoch():
+        try:
+            cache.set(_LATEST_COMMENTS_EPOCH_KEY, uuid.uuid4().hex, timeout=None)
+        except Exception:
+            logger.exception("Could not bump latest-comments cache epoch")
+
+    transaction.on_commit(bump_epoch)
 
 COMMENTS_EDITOR_EXTENSIONS = {
     "Bold": True,
@@ -89,6 +95,15 @@ def _schedule_notification(callback):
 class CommentQuerySet(models.QuerySet):
     def approved(self):
         return self.filter(is_approved=True)
+
+    def update(self, **kwargs):
+        """Bulk-обновления (модерация через QuerySet.update и admin bulk
+        actions) минуют сигналы — инвалидируем кеш виджета последних
+        комментариев явно. invalidate_latest_comments_cache() безопасна и
+        внутри atomic (deferred on_commit), и в autocommit (немедленно)."""
+        result = super().update(**kwargs)
+        invalidate_latest_comments_cache()
+        return result
 
 
 class CommentManager(TreeManager.from_queryset(CommentQuerySet)):
@@ -236,7 +251,9 @@ class Comment(MPTTModel):
             self.parent = current_parent
 
         super().save(*args, **kwargs)
-        invalidate_latest_comments_cache()
+        # Инвалидация кеша здесь НЕ нужна: super().save() уже вызвал
+        # post_save-ресивер (_invalidate_latest_comments_after_save).
+        # Дублирующий bump удваивал сброс кеша при каждом сохранении.
 
         if not is_new:
             return
@@ -293,11 +310,87 @@ class Comment(MPTTModel):
                 _schedule_notification(send_reply_notification)
 
 
+class ConsumedCommentNonce(models.Model):
+    """One-time token use, scoped to a browser CSRF secret.
+
+    The unique HMAC permits atomic replay detection without storing the CSRF
+    secret or nonce. Scoping by CSRF secret keeps a cached token usable by
+    separate visitors while rejecting duplicate submissions from one browser.
+    """
+
+    nonce_hash = models.CharField(max_length=64, primary_key=True)
+    expires_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Consumed comment form nonce"
+        verbose_name_plural = "Consumed comment form nonces"
+
+
+class CommentRateLimitBucket(models.Model):
+    """Atomic per-identity rate-limit window for public comment submissions.
+
+    The key is a SHA-256 digest; raw client IPs and user identifiers are not
+    stored. Counter changes use conditional SQL UPDATEs (F expressions), so
+    concurrent requests cannot all pass the same remaining slot.
+    """
+
+    key_hash = models.CharField(max_length=64, primary_key=True)
+    window_started_at = models.DateTimeField(db_index=True)
+    count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Comment rate-limit bucket"
+        verbose_name_plural = "Comment rate-limit buckets"
+
+
 # QuerySet deletion and cascading page deletion bypass model.delete(); signals cover them.
-from django.db.models.signals import post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from wagtail.models import PageViewRestriction, Site
+from wagtail.signals import page_published, page_unpublished, page_slug_changed, post_page_move
+
+
+# Про bulk_create: Django НЕ шлёт post_save при bulk_create. Стандартный
+# bulk_create НЕ ПОДДЕРЖИВАЕТСЯ django-mptt для этой модели — он обходит
+# формирование дерева, tree-поля (lft/rght/level/tree_id) остаются NULL и
+# INSERT падает с NOT NULL constraint failed на lft (проверено эмпирически).
+# Обходные вставки (ручной SQL или INSERT с заранее заполненными tree-
+# полями) НЕ поддерживаются и гарантию инвалидации кеша НЕ дают: рассчитывать
+# на инвалидацию при них нельзя. Поддерживаемый путь создания —
+# instance.save(), покрытый post_save. bulk_update группирует обновления
+# через QuerySet.update() (Django 4.2+), поэтому покрыт переопределённым
+# CommentQuerySet.update().
+
+@receiver(post_save, sender=Comment)
+def _invalidate_latest_comments_after_save(sender, instance, **kwargs):
+    # Любое сохранение комментария (создание, approve/unapprove, правка в
+    # админке) сбрасывает кеш. Всегда, а не только при смене is_approved:
+    # узкие эвристики по полям молча пропускают сохранения из хост-проекта
+    # и MPTT-операций, а ложная инвалидация безвредна.
+    invalidate_latest_comments_cache()
 
 
 @receiver(post_delete, sender=Comment)
 def _invalidate_latest_comments_after_delete(sender, instance, **kwargs):
+    invalidate_latest_comments_cache()
+
+
+@receiver(page_published)
+@receiver(page_unpublished)
+@receiver(page_slug_changed)
+@receiver(post_page_move)
+def _invalidate_latest_comments_after_page_change(sender, instance, **kwargs):
+    invalidate_latest_comments_cache()
+
+
+@receiver(post_save, sender=PageViewRestriction)
+@receiver(post_delete, sender=PageViewRestriction)
+def _invalidate_latest_comments_after_page_restriction_change(sender, instance, **kwargs):
+    invalidate_latest_comments_cache()
+
+
+@receiver(post_save, sender=Site)
+@receiver(post_delete, sender=Site)
+def _invalidate_latest_comments_after_site_change(sender, instance, **kwargs):
     invalidate_latest_comments_cache()

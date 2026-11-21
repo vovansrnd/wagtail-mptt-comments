@@ -11,7 +11,7 @@ Use this package for article/page comments. It is not a forum engine and does no
 ## Features
 
 - Nested replies powered by `django-mptt`, with configurable depth.
-- Guest anti-spam checks: honeypot, a signed page-bound form token, a signed math challenge, and per-session replay detection. These are layered friction/rate-limit controls, not a replacement for a WAF or abuse monitoring.
+- Guest anti-spam checks: honeypot, a signed page-bound form token, a signed math challenge, browser-scoped replay detection, and a database-backed atomic per-IP/account rate limiter. These are layered friction/rate-limit controls, not a replacement for a WAF or abuse monitoring.
 - Optional moderation for new comments and email notifications to administrators.
 - User, guest, moderator, and administrator badges; optional notification to a comment author when someone replies.
 - Wagtail admin list and tree views, bulk approve/delete actions, and administrator responses.
@@ -19,27 +19,29 @@ Use this package for article/page comments. It is not a forum engine and does no
 - Multi-site filtering so page comments and recent-comment widgets are restricted to the current Wagtail Site.
 - CSS variables for front-end theming, and a Prose-based editor for comment/admin-response content.
 
-## Audit/release status
 
-This source bundle prepares version `0.2.5` for a possible next release. Static syntax/package checks have been run, but a full Django/Wagtail integration suite has not run in the bundle build environment. Do not upload to PyPI until the release checklist in `../../04-docs/UPGRADE_AND_RELEASE.md` is complete.
+## Compatibility
+
+The package metadata declares a minimum of `wagtail>=6.0`; that is the
+supported floor, not the full test matrix. The two tested configurations
+differ in kind: Wagtail 8.0.1 is covered by integration tests of the
+originating project with editable installs of this package, while
+Wagtail 8.1 was tested against the target production stack with clean
+wheel and sdist installs — both with Django 6.0.9 on Python 3.14.
+Other combinations may work but are not covered by the test suite.
 
 ## Requirements and installation
 
 Package metadata declares `wagtail>=6.0`, `django-mptt>=0.16.0`, `django-prose-editor>=0.26`, and `nh3>=0.2.14`.
 
 ```bash
-pip install wagtail-mptt-comments
+pip install wagtail-mptt-comments==0.2.9
 ```
-
-To install **the candidate source in this bundle** (rather than the already-published PyPI release), run from this package directory:
 
 ```bash
 python -m pip install .
-# For editable development instead:
-python -m pip install -e .
 ```
 
-`pip install wagtail-mptt-comments` selects the version currently published on PyPI. The candidate version shown in `pyproject.toml` is not published by this archive operation; publish it only after the release checklist in `../../04-docs/UPGRADE_AND_RELEASE.md` passes.
 
 
 Add the app after its dependencies:
@@ -101,7 +103,7 @@ The package does not require a custom Wagtail Page model. Your commentable page 
 </ul>
 ```
 
-The template tag is intended for the current Wagtail Site. Keep it in a request context where the current `request` and Site are available. If your project has custom domain routing or serves content outside a configured Wagtail Site, verify that the widget returns no cross-site comments rather than broadening to all sites.
+The latest-comments widget cache is invalidated after page publish/unpublish, page visibility restriction changes, page moves/slug changes, and Site changes. Its short cache lifetime also bounds any missed invalidation. The template tag is intended for the current Wagtail Site. It returns only approved comments attached to live, public pages of that Site. Keep it in a request context where the current `request` and Site are available. If your project has custom domain routing or serves content outside a configured Wagtail Site, verify that the widget returns no cross-site comments rather than broadening to all sites. The cache stores only integer comment IDs rather than Comment/User model instances; on every call the IDs are resolved back to full Comment instances after re-checking the same eligibility predicates (approved, live public page of the current Site), so a stale ID can never surface a hidden, unapproved, or foreign-site comment.
 
 ## Settings
 
@@ -113,6 +115,8 @@ All settings are optional. Current defaults in the package source are:
 | `COMMENTS_NOTIFY_ADMINS` | `False` | Email administrators about new comments. |
 | `COMMENTS_MODERATOR_GROUPS` | `None` | Django group names whose members receive the moderator badge/role. |
 | `COMMENTS_MAX_LENGTH` | `20000` | Maximum comment text length. |
+| `COMMENTS_RATE_LIMIT` | `10` | Maximum public comment POSTs per IP/account in one rate window. |
+| `COMMENTS_RATE_WINDOW` | `300` seconds | Rolling-window length for the public comment limiter. |
 | `COMMENTS_CAPTCHA_MAX_AGE` | `7200` seconds | Maximum age of the signed math-captcha token. |
 | `COMMENTS_FORM_TOKEN_MAX_AGE` | `7200` seconds | Maximum age of the signed page-bound form token. |
 | `COMMENTS_TRUST_PROXY_HEADERS` | `False` | Allow reading a forwarded client-IP chain, but only when `REMOTE_ADDR` matches a trusted proxy network. |
@@ -127,6 +131,8 @@ COMMENTS_MODERATION = True
 COMMENTS_NOTIFY_ADMINS = True
 COMMENTS_MODERATOR_GROUPS = ["Moderators"]
 COMMENTS_MAX_LENGTH = 20_000
+COMMENTS_RATE_LIMIT = 10
+COMMENTS_RATE_WINDOW = 300
 COMMENTS_TRUST_PROXY_HEADERS = False  # keep false until proxy behavior is verified
 COMMENTS_TRUSTED_PROXY_IPS = ()  # e.g. ("10.0.0.10/32",) after confirmation
 DEFAULT_FROM_EMAIL = "noreply@example.com"
@@ -156,9 +162,12 @@ Use your actual wrapper selector, and load the override after the plugin stylesh
 ## Security and operations
 
 - Keep `nh3` and the package dependencies updated. Do not render user-authored HTML with `|safe` in custom templates.
-- Test guest posting, CSRF, replay attempts in one session, moderation, reply links, email, and collection/site separation with normal users, moderators, and administrators. Cached HTML may be reused across visitors; replay tracking is per session so one visitor does not invalidate another visitor's copy of a cached challenge.
+- Test guest posting, CSRF, replay attempts from the same browser, concurrent replay, moderation, reply links, email, and collection/site separation with normal users, moderators, and administrators. Replay records are stored as HMACs scoped to the browser's CSRF secret, so the same cached form token can be used by different browsers without allowing repeated submissions from one browser.
+- The database-backed rate limiter applies per client IP for anonymous visitors and per account for authenticated visitors. It does not replace an upstream WAF. The lazy comment-form endpoint sets a CSRF cookie even when a theme overrides the fragment template; custom form templates must still render `{% csrf_token %}` inside the POST form.
+- **Rate-limit policy (intended behaviour):** every POST to the comment endpoint consumes one limiter slot *before* form validation. Invalid or spam-shaped submissions are therefore not free — repeated invalid POSTs exhaust the visitor's quota exactly like valid ones. (The form nonce is only consumed on a validated submission, so a visitor can correct a typo without reloading the form, as long as the rate window is not exhausted.) Counters use conditional SQL UPDATEs, so parallel requests on PostgreSQL cannot pass the same remaining slot, and a window resets exactly when `window_started_at <= now - COMMENTS_RATE_WINDOW`. If you need "only valid submissions count", that is a separate change request, not the current policy.
+- Run `python manage.py cleanup_comment_security --days 2` periodically (for example, once a day) to remove expired nonce records and stale rate-limit buckets. A bucket is retained for at least the configured `COMMENTS_RATE_WINDOW`, even when that window exceeds `--days`. The command does not touch comments or media.
 - When using multiple Wagtail Sites, test the latest-comments widget on every domain, including an unknown/unconfigured host.
-- The source bundle does not include an automated test suite or a complete runtime compatibility matrix. Run migrations and smoke tests against your exact production dependencies before upgrading.
+- The source distribution includes the package regression tests. Run the full Django/Wagtail suite, apply migrations in a disposable database, and smoke-test against your exact dependencies before upgrading. The package's published compatibility statement still describes the versions actually tested, not every version allowed by `wagtail>=6.0`.
 
 ## Recommended combinations
 

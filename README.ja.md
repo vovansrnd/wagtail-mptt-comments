@@ -102,3 +102,8 @@ urlpatterns = [
 
 MIT. ソースコード: [https://github.com/vovansrnd/wagtail-mptt-comments](https://github.com/vovansrnd/wagtail-mptt-comments).
 
+## 0.2.9 リリースノート
+
+- ゲスト向けスパム対策：ハニーポット、ページに結び付けられた署名付きフォームトークン、署名付き計算チャレンジ、ブラウザ単位のリプレイ検出（ブラウザの CSRF シークレットに紐づく HMAC）、およびデータベース backing の IP/アカウント単位のアトミックなレートリミッター (`COMMENTS_RATE_LIMIT`, `COMMENTS_RATE_WINDOW`)。
+- クリーンアップを毎日実行してください：`python manage.py cleanup_comment_security` が古いレートリミッター記録と期限切れノンスを削除します。
+- 最新コメントのウィジェットは、現在の Wagtail サイトの公開中ページにある承認済みコメントのみを表示します。

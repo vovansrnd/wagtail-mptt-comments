@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 
 import nh3
 from django import template
@@ -83,22 +84,59 @@ def get_latest_comments(context, count=5):
         count = 5
 
     epoch = cache.get(_LATEST_COMMENTS_EPOCH_KEY, 0)
-    cache_key = f"latest_comments_site_{site.pk}_{count}_{epoch}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    cache_key = _latest_comments_cache_key(site.pk, count, epoch)
+    cached_ids = cache.get(cache_key)
+    if cached_ids is not None:
+        # В кеше — только целочисленные ID; Comment разрешаются на каждом
+        # вызове: прежний тип результата (Comment) полностью сохранён,
+        # User/password hash в кеш не попадают.
+        #
+        # Fail closed: разрешение ID ПОВТОРНО применяет те же eligibility-
+        # предикаты, что и свежий запрос (is_approved=True и страница
+        # live+public+в текущем Site). При пропущенной инвалидации или сбое
+        # epoch устаревший ID не может вернуть скрытый/неодобренный/чужой-site
+        # комментарий — он молча отсеивается.
+        comments = _comments_in_id_order(cached_ids, site)
+        if len(comments) == len(cached_ids):
+            return comments
+        # Часть кешированных ID больше не eligible (или запись удалена):
+        # не показываем их и не оставляем виджет недозаполненным — добираем
+        # результат свежим запросом до полного count и обновляем IDs под
+        # ТЕКУЩИМ epoch key.
 
-    qs = Comment.objects.filter(
-        is_approved=True,
-        page__in=Page.objects.in_site(site),
-    )
     comments = list(
-        qs.select_related("page", "user")
-        .prefetch_related(*_user_prefetch_paths())
+        _eligible_latest_comments(site)
         .order_by("-date_created")[:count]
     )
-    cache.set(cache_key, comments, 300)
+    cache.set(cache_key, [comment.pk for comment in comments], 300)
     return comments
+
+
+def _eligible_latest_comments(site):
+    """Fresh eligibility predicates — единый источник для cache miss и для
+    повторной проверки кешированных ID на cache hit (fail closed)."""
+    return Comment.objects.filter(
+        is_approved=True,
+        page__in=Page.objects.live().public().in_site(site),
+    ).select_related("page", "user").prefetch_related(*_user_prefetch_paths())
+
+
+def _comments_in_id_order(ids, site):
+    """Resolve cached integer IDs back to Comment instances, preserving the
+    cached order. Fail closed: the same eligibility predicates as the fresh
+    query are re-applied on every resolve, so a stale ID can never surface a
+    comment that is no longer approved, lives on an unpublished/restricted
+    page, or belongs to another site. Deleted IDs are dropped too.
+    Nothing but integer IDs is ever cached."""
+    by_id = {
+        comment.pk: comment
+        for comment in _eligible_latest_comments(site).filter(pk__in=ids)
+    }
+    return [by_id[comment_id] for comment_id in ids if comment_id in by_id]
+
+
+def _latest_comments_cache_key(site_pk, count, epoch):
+    return f"latest_comment_ids_site_{site_pk}_{count}_{epoch}"
 
 
 @register.inclusion_tag('wagtail_mptt_comments/comments_block.html', takes_context=True)
