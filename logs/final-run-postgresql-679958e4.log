@@ -1,0 +1,24 @@
+### Пометка агента — команда сборки и запуска (не часть stdout):
+### Сборка: python -m build --wheel . (чистое дерево HEAD 679958e4f0c8305ea6adfc2c0039be263b0736b6)
+### Запуск: TEST_DB_ENGINE=postgresql TEST_DB_NAME=mptt_audit TEST_DB_USER=*** TEST_DB_PASSWORD=*** TEST_DB_HOST=127.0.0.1 TEST_DB_PORT=5432 PYTHONUNBUFFERED=1 <venv>/bin/python runtests.py
+=== FINAL MATRIX (project stack) PG: HEAD 679958e4f0c8305ea6adfc2c0039be263b0736b6 / wheel SHA256 123755297782f5a5d199043f82e2eebab7f18790e6022fda4841718699d2e42c / Python Python 3.14.4 / Django 6.0.9 / Wagtail (8, 1, 0, 'final', 1) / django-mptt 0.18.0 / PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1) ===
+проверяемый пакет (wheel): /opt/MyApps/wagtail/d67-release-audit/clean-mptt-comments-venv3/lib/python3.14/site-packages/wagtail_mptt_comments/__init__.py
+Found 57 test(s).
+Creating test database for alias 'default'...
+System check identified no issues (0 silenced).
+...........Invalid comment rate-limit configuration
+Traceback (most recent call last):
+  File "/opt/MyApps/wagtail/d67-release-audit/clean-mptt-comments-venv3/lib/python3.14/site-packages/wagtail_mptt_comments/views.py", line 175, in add_comment_to_page
+    limited = _rate_limited(request, "post", limit=rate_limit, window=rate_window)
+  File "/opt/MyApps/wagtail/d67-release-audit/clean-mptt-comments-venv3/lib/python3.14/site-packages/wagtail_mptt_comments/views.py", line 122, in _rate_limited
+    raise ValueError("limit and window must be positive integers")
+ValueError: limit and window must be positive integers
+..........Deleted 0 stale rate-limit rows and 0 expired nonce rows.
+.Deleted 1 stale rate-limit rows and 1 expired nonce rows.
+...................................
+----------------------------------------------------------------------
+Ran 57 tests in 48.421s
+
+OK
+Destroying test database for alias 'default'...
+=== EXIT=0 ===
