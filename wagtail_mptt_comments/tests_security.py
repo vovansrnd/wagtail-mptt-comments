@@ -227,22 +227,33 @@ class CommentSecurityCleanupCommandTests(TestCase):
         self.assertTrue(CommentRateLimitBucket.objects.filter(key_hash="e" * 64).exists())
 
     def test_cleanup_race_keeps_bucket_refreshed_after_selection(self):
-        """TOCTOU-интерливинг SELECT/DELETE: ключ попал в выбранный batch как
-        stale, затем параллельный POST обновил окно того же bucket
-        (_consume_rate_bucket: window_started_at=now, count=1). DELETE с
-        повторной проверкой window_started_at__lt=cutoff обязан оставить
-        строку — иначе следующий POST обходил бы часть лимита."""
+        """TOCTOU-интерливинг SELECT -> concurrent refresh -> DELETE: ключ
+        реально выбран SELECT'ом как stale, ЗАТЕМ (после завершения SELECT,
+        перед исполнением DELETE) параллельный POST обновил окно того же
+        bucket (_consume_rate_bucket: window_started_at=now, count=1).
+        DELETE с повторной проверкой window_started_at__lt=cutoff обязан
+        оставить строку — иначе следующий POST обходил бы часть лимита.
+
+        Порядок доказан перехватом построения DELETE-queryset: вызов
+        filter(key_hash__in=...) в команде происходит только после того,
+        как предыдущий list(...values_list...) ЗАВЕРШИЛ SELECT, и несёт в
+        себе его результат. В перехватчике фиксируется выбранное содержимое
+        и только затем выполняется обновление."""
         bucket = CommentRateLimitBucket.objects.create(
             key_hash="f" * 64,
             window_started_at=timezone.now() - timedelta(days=3),
             count=5,
         )
         real_filter = CommentRateLimitBucket.objects.filter
+        delete_phase_ids = []
 
-        def interleaved_filter(*args, **kwargs):
-            # Фаза SELECT (без key_hash__in): имитируем параллельный POST,
-            # который успел обновить окно этого же ключа до DELETE.
-            if "window_started_at__lt" in kwargs and "key_hash__in" not in kwargs:
+        def intercepting_filter(*args, **kwargs):
+            if "key_hash__in" in kwargs:
+                # Фаза DELETE строится: SELECT уже ЗАВЕРШИЛСЯ и вернул
+                # ключи в kwargs["key_hash__in"]. Фиксируем результат
+                # SELECT'а до интерливинга, затем имитируем конкурентный
+                # POST, обновивший окно того же ключа.
+                delete_phase_ids.append(list(kwargs["key_hash__in"]))
                 real_filter(key_hash=bucket.key_hash).update(
                     window_started_at=timezone.now(), count=1
                 )
@@ -250,14 +261,53 @@ class CommentSecurityCleanupCommandTests(TestCase):
 
         with mock.patch.object(
             CommentRateLimitBucket.objects, "filter",
-            side_effect=interleaved_filter,
+            side_effect=intercepting_filter,
         ):
             call_command("cleanup_comment_security", days=2, batch_size=10, verbosity=0)
 
+        # SELECT реально вернул stale ключ ДО интерливинга
+        self.assertEqual(delete_phase_ids, [[bucket.key_hash]])
+        # production-DELETE (с повторной проверкой cutoff) оставил обновлённую строку
         bucket.refresh_from_db()
-        self.assertEqual(bucket.count, 1)  # строка пережила cleanup
+        self.assertEqual(bucket.count, 1)
         self.assertGreater(bucket.window_started_at,
                            timezone.now() - timedelta(seconds=2))
+
+    def test_race_interleave_deletes_bucket_without_cutoff_recheck(self):
+        """Контроль чувствительности: тот же интерливинг (refresh ПОСЛЕ
+        завершившегося SELECT) с НЕисправленным DELETE — только по
+        key_hash__in, без повторной проверки cutoff — удаляет bucket.
+        Доказывает, что race-тест выше ловит именно отсутствие
+        window_started_at__lt=cutoff в DELETE. Мутация исполняется только
+        в тестовой обёртке, production-код не патчится."""
+        bucket = CommentRateLimitBucket.objects.create(
+            key_hash="h" * 64,
+            window_started_at=timezone.now() - timedelta(days=3),
+            count=5,
+        )
+        real_filter = CommentRateLimitBucket.objects.filter
+
+        def intercepting_filter_unfixed(*args, **kwargs):
+            if "key_hash__in" in kwargs:
+                # SELECT завершён (ids в kwargs); конкурентный POST обновил окно
+                real_filter(key_hash=bucket.key_hash).update(
+                    window_started_at=timezone.now(), count=1
+                )
+                # Неисправленный DELETE: без cutoff-предиката
+                real_filter(key_hash__in=kwargs["key_hash__in"]).delete()
+                # production-DELETE в команде не должен ничего удалять повторно
+                return real_filter(key_hash__in=[])
+            return real_filter(*args, **kwargs)
+
+        with mock.patch.object(
+            CommentRateLimitBucket.objects, "filter",
+            side_effect=intercepting_filter_unfixed,
+        ):
+            call_command("cleanup_comment_security", days=2, batch_size=10, verbosity=0)
+
+        self.assertFalse(
+            CommentRateLimitBucket.objects.filter(key_hash=bucket.key_hash).exists()
+        )
 
     def test_cleanup_still_deletes_truly_stale_after_race_fix(self):
         """Позитивный контроль: без интерливинга genuinely stale строки
